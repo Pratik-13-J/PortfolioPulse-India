@@ -2,17 +2,34 @@
 
 India-first portfolio risk monitor built with Python, SQLite, Streamlit, and Plotly.
 
-**Status:** Phase 0 review and structure are complete. This workspace contains a starter prototype whose calculations and dashboard have not yet passed Phases 1–8 in [PROJECT_PLAN.md](PROJECT_PLAN.md). See [the Phase 0 review](docs/PHASE_0_REVIEW.md) for tracked gaps.
+**Status:** Phases 0 and 1 are complete. The project has a local Git checkpoint, an isolated Python environment, pinned direct dependencies, and a verified Streamlit server startup. The financial calculations and dashboard behavior still need the later gates in [PROJECT_PLAN.md](PROJECT_PLAN.md). See the [Phase 0 review](docs/PHASE_0_REVIEW.md) and [Phase 1 setup record](docs/PHASE_1_SETUP.md).
 
 This offline-first MVP demonstrates portfolio return and risk analytics, data persistence, allocation review, and what-if scenarios. The included prices are **synthetic demo data**, not market observations. No trades, forecasts, or personalized investment advice are produced.
 
-## Starter launch commands (to be verified in Phase 1)
+## Windows PowerShell setup
 
-1. Create a Python environment and install `requirements.txt`.
-2. Run `python -m scripts.seed_demo` once to create the local SQLite database and synthetic sample data.
-3. Run `python -m streamlit run app.py`.
+Run these commands from this project folder with Python 3.12 installed:
+
+```powershell
+New-Item -ItemType Directory -Force .tmp | Out-Null
+$env:TEMP = (Resolve-Path .tmp).Path
+$env:TMP = $env:TEMP
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+.\.venv\Scripts\python.exe -m pip check
+.\.venv\Scripts\python.exe -m scripts.seed_demo
+.\.venv\Scripts\python.exe -m streamlit run app.py
+```
+
+The temporary-directory settings keep Python package setup inside the project on restricted Windows machines. To open the project in VS Code, run `code .` from the same folder if the VS Code command is installed.
 
 The local database path is `data/portfoliopulse.db`. The seed data is synthetic and labeled as such.
+
+To check the starter database without running the dashboard:
+
+```powershell
+.\.venv\Scripts\python.exe -c "from portfoliopulse.database import connect; c=connect(); print(c.execute('SELECT COUNT(*) FROM market_observations').fetchone()[0]); c.close()"
+```
 
 ## What it shows
 

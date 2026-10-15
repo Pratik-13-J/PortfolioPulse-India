@@ -2,7 +2,7 @@
 
 ## Status and working method
 
-**Phase 0 complete:** existing scaffold reviewed, organized and import-checked on 16 October 2026. **Phases 1–8 are not signed off.** The presence of a module or screen in the starter code does not count as financial or runtime verification. We will finish each phase, check its gate, fix findings, and then move on.
+**Phases 0 and 1 complete:** the scaffold was reviewed and organized, then a local Git baseline, isolated environment, dependencies and Streamlit startup were verified on 16 October 2026. **Phases 2–8 are not signed off.** The presence of a module or screen in the starter code does not count as financial verification. We will finish each phase, check its gate, fix findings, and then move on.
 
 **Confirmed portfolio model:** INR-denominated Indian assets, buy-and-hold holdings. Quantities stay fixed over the analysis window, so market weights drift; scenario impacts use the latest observed weights. Target weights are a comparison for drift alerts. The benchmark remains outside the portfolio.
 
