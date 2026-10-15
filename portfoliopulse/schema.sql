@@ -5,8 +5,9 @@ CREATE TABLE IF NOT EXISTS instruments (
     symbol TEXT NOT NULL UNIQUE,
     name TEXT NOT NULL,
     asset_class TEXT NOT NULL CHECK(asset_class IN ('Equity', 'Debt', 'Gold', 'Benchmark')),
+    sector TEXT NOT NULL DEFAULT 'Unspecified',
     currency TEXT NOT NULL DEFAULT 'INR',
-    data_source TEXT NOT NULL DEFAULT 'synthetic_demo'
+    data_source TEXT NOT NULL DEFAULT 'synthetic_india_demo_v1'
 );
 
 CREATE TABLE IF NOT EXISTS portfolios (

@@ -7,9 +7,10 @@ import plotly.express as px
 import streamlit as st
 
 from portfoliopulse.analytics import concentration, portfolio_values, risk_metrics
+from portfoliopulse.bootstrap import ensure_demo_data
 from portfoliopulse.briefing import briefing
 from portfoliopulse.config import BENCHMARK_SYMBOL, DB_PATH, TRADING_DAYS_PER_YEAR
-from portfoliopulse.data import ensure_demo_data
+from portfoliopulse.data import PriceDataError, align_prices, load_price_csv
 from portfoliopulse.database import get_holdings, get_prices, load_observations, save_holdings, save_run, save_scenario
 from portfoliopulse.scenarios import scenario_impact
 
@@ -32,7 +33,7 @@ with st.sidebar:
     uploaded = st.file_uploader("Import observations (CSV)", type=["csv"], help="Required columns: symbol, date, close_value. Symbols must exist in the demo instrument list.")
     if uploaded is not None and st.button("Import CSV observations"):
         try:
-            imported = pd.read_csv(uploaded)
+            imported = load_price_csv(uploaded)
             rows_added = load_observations(imported, source=f"uploaded:{uploaded.name}")
             st.success(f"Imported or updated {rows_added:,} observations.")
             st.rerun()
@@ -78,9 +79,14 @@ if start_date >= end_date:
 price_window = get_prices(symbols + [BENCHMARK_SYMBOL], start_date.isoformat(), end_date.isoformat())
 holdings = get_holdings()
 try:
+    aligned_window = align_prices(price_window, symbols + [BENCHMARK_SYMBOL], source="local_database")
+    if aligned_window.dropped_price_dates:
+        st.error("This window has missing instrument or benchmark prices. Choose a complete window or import the missing observations before calculating risk.")
+        st.dataframe(aligned_window.coverage, hide_index=True)
+        st.stop()
     value_matrix, portfolio_value = portfolio_values(price_window[price_window["symbol"].isin(symbols)], holdings)
     returns, metrics = risk_metrics(portfolio_value, confidence=confidence, annual_rf=annual_rf)
-except (ValueError, KeyError) as exc:
+except (PriceDataError, ValueError, KeyError) as exc:
     st.error(str(exc))
     st.stop()
 
@@ -133,6 +139,8 @@ with overview:
     st.plotly_chart(px.line(x=rolling_vol.index, y=rolling_vol.values, labels={"x": "Date", "y": "Annualized volatility"}, title="Rolling 63-observation volatility"), use_container_width=True)
 
 with exposures:
+    st.subheader("Indian demo holdings")
+    st.dataframe(holdings[["symbol", "name", "sector", "asset_class", "quantity", "target_weight"]], use_container_width=True, hide_index=True)
     c1, c2 = st.columns(2)
     with c1:
         st.plotly_chart(px.bar(allocation.melt(id_vars="symbol", var_name="Allocation", value_name="Weight"), x="symbol", y="Weight", color="Allocation", barmode="group", title="Current vs target allocation", text_auto=".1%"), use_container_width=True)
@@ -166,7 +174,7 @@ with methodology:
     st.subheader("Observation coverage")
     st.dataframe(coverage, use_container_width=True, hide_index=True)
     st.markdown("""
-    **Data status:** synthetic demo series, generated locally and deterministically. They are not real Nifty, ETF, or fund observations.
+    **Data status:** synthetic demo series loaded from a bundled CSV. They are not real Nifty, stock, ETF, or fund observations. The weekday date grid is not an NSE trading calendar.
 
     **Portfolio construction:** fixed unit holdings valued at each date's close/NAV. The portfolio is not automatically rebalanced. Dates are aligned across selected holdings using common observations.
 
@@ -176,5 +184,5 @@ with methodology:
 
     **Real-data path:** import appropriately sourced observations. Nifty Indices historical/total-return data and AMFI NAV history are candidate India-specific inputs. NSE market-data access has usage terms; confirm rights before automation or redistribution. Keep source and as-of metadata with every import.
     """)
-    st.code("symbol,date,close_value\nNIFTYETF,2026-09-29,254.21\n", language="csv")
+    st.code("symbol,date,close_value\nDEMO_ENERGY,2026-09-29,254.21\n", language="csv")
     st.caption(f"Local database: {DB_PATH.name} · Last observation: {all_prices['date'].max().date()} · Base currency: INR")

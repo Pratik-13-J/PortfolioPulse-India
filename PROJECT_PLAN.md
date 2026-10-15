@@ -2,7 +2,7 @@
 
 ## Status and working method
 
-**Phases 0 and 1 complete:** the scaffold was reviewed and organized, then a local Git baseline, isolated environment, dependencies and Streamlit startup were verified on 16 October 2026. **Phases 2–8 are not signed off.** The presence of a module or screen in the starter code does not count as financial verification. We will finish each phase, check its gate, fix findings, and then move on.
+**Phases 0 and 1 complete; Phase 2 offline demo path complete:** the scaffold, environment and Streamlit startup were verified, then a fictional India-themed portfolio and checked-in price CSV were added with data validation. The requested dummy data does not represent a live Indian market feed. **Phases 3–8 are not signed off.** The presence of a module or screen in the starter code does not count as financial verification. We will finish each phase, check its gate, fix findings, and then move on.
 
 **Confirmed portfolio model:** INR-denominated Indian assets, buy-and-hold holdings. Quantities stay fixed over the analysis window, so market weights drift; scenario impacts use the latest observed weights. Target weights are a comparison for drift alerts. The benchmark remains outside the portfolio.
 
@@ -20,7 +20,7 @@ Use Nifty benchmarks and Indian instrument examples. Do not imply that a Nifty i
 
 ## What the MVP will implement
 
-1. **Portfolio setup:** edit quantities and target weights for the seeded India-themed ETF proxy portfolio. The model is INR-denominated. Adding arbitrary instruments and fund schemes is a follow-on; the current CSV import accepts the seeded symbols.
+1. **Portfolio setup:** edit quantities and target weights for a seeded portfolio of six fictional Indian sector stocks, a gold ETF and a government bond ETF. The model is INR-denominated. Adding arbitrary instruments and fund schemes is a follow-on; the current CSV import accepts the seeded symbols.
 2. **Historical data workflow:** import a CSV with `symbol,date,close_value`; generate deterministic synthetic sample series so the demo works offline. Show source and observation coverage, and align returns on common dates. Keep the repository interface replaceable for later licensed feeds.
 3. **Data quality controls:** parse dates and numeric fields; reject duplicate instrument/date rows and invalid prices; show coverage and align on common dates; do not silently forward-fill or mix incompatible calendars.
 4. **Performance and risk engine:** calculate daily portfolio returns, cumulative return, annualized return and volatility, Sharpe ratio with a disclosed configurable risk-free assumption, maximum drawdown, 95% or 99% historical VaR and expected shortfall, 63-observation rolling volatility, benchmark beta, and correlation. Show the selected window and method in the interface.
@@ -37,14 +37,17 @@ Keep the Streamlit UI thin and keep finance logic out of page callbacks:
 app.py                         # Streamlit entry point; UI concerns only
 portfoliopulse/
   config.py                    # paths and shared assumptions
-  data.py                      # current synthetic data; live/CSV pipeline in P2
+  demo.py                      # fictional instruments and deterministic generator
+  data.py                      # CSV validation, alignment and fallback
+  bootstrap.py                 # idempotent local demo setup
   database.py                  # SQLite repository; strengthened in P3
   schema.sql                   # normalized database tables
   analytics.py                 # portfolio and risk calculations; validated in P4
   scenarios.py                 # shock analysis; extended in P5
   briefing.py                  # deterministic explanation; reviewed in P6
 scripts/seed_demo.py           # local demo database initialization
-data/                          # local database and future CSV cache
+scripts/generate_demo_csv.py   # reproducible CSV generator
+data/demo/prices.csv           # checked-in offline synthetic price fallback
 tests/                         # meaningful calculation and SQL checks in P2–P7
 docs/                          # phase reviews and methodology notes
 ```
@@ -53,7 +56,7 @@ Use **SQLite for the two-day local MVP**, with foreign keys enabled, explicit tr
 
 Core relational tables:
 
-- `instruments(instrument_id, symbol, name, asset_class, currency, data_source)`
+- `instruments(instrument_id, symbol, name, asset_class, sector, currency, data_source)`
 - `portfolios(portfolio_id, name, base_currency, created_at)`
 - `holdings(portfolio_id, instrument_id, quantity, target_weight)`
 - `market_observations(instrument_id, observation_date, close_value, source, imported_at)` with a unique instrument/date key
@@ -79,7 +82,7 @@ Python should own the transparent financial calculations. Align return series on
 | --- | --- | --- |
 | **0 — Review and structure** | Audit the inherited scaffold, align the scope to Indian assets, organize files and record risks. | File layout and imports are coherent; open issues and decisions are recorded. |
 | **1 — Environment and configuration** | Create a reproducible Python environment, finalize dependencies and Windows setup instructions. | Fresh setup imports the package and starts the application without missing modules. |
-| **2 — Indian market data** | Select real Indian ETFs/benchmark, confirm usable historical sources and terms, ingest adjusted/total-return series where available, and retain a labeled offline CSV fallback. | Dates, source, adjustments, duplicates, missingness and overlap are checked; no fabricated points enter the real-data path. |
+| **2 — Indian demo data and offline CSV** | Seed fictional Indian stocks across sectors, gold, debt and a separate benchmark; validate CSV observations and common dates. Real-price provider selection is deferred under the current dummy-portfolio scope. | The CSV is reproducible and clearly synthetic; dates, source, duplicates, prices, missingness and overlap are checked. |
 | **3 — SQL and portfolio setup** | Review the schema, portfolio identity, holdings/targets, idempotent imports and saved analysis results. | Transactions, constraints, date-filtered retrieval and invalid-weight handling work on a fresh database. |
 | **4 — Portfolio analytics** | Validate buy-and-hold valuation, returns, annualization, Sharpe, drawdown, historical VaR/ES, correlations and volatility contribution. | Small hand-calculated examples match Python output; methods and edge cases are documented. |
 | **5 — Scenarios and alerts** | Add shocks per asset, contribution reconciliation, allocation drift and concentration thresholds. | Scenario components sum to total impact and invalid inputs are rejected. |
