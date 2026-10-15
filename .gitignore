@@ -1,0 +1,10 @@
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ruff_cache/
+.coverage
+data/*.db
+data/*.db-*
+data/*.csv
+.streamlit/secrets.toml
