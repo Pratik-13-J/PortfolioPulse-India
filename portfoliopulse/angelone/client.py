@@ -14,6 +14,7 @@ import os
 import re
 import time
 from typing import Any, Callable, Mapping, Protocol, Sequence
+from unittest.mock import patch
 
 import pandas as pd
 
@@ -25,6 +26,7 @@ PRICE_BASIS = "unadjusted_ohlcv"
 INTERVAL = "ONE_DAY"
 IST = "Asia/Kolkata"
 MAX_DAYS_PER_REQUEST = 2_000
+MIN_RATE_LIMIT_RETRY_SECONDS = 15.0
 CANDLE_COLUMNS = (
     "symbol", "trading_symbol", "token", "exchange", "timestamp_ist",
     "date", "open", "high", "low", "close", "volume", "source",
@@ -76,7 +78,14 @@ def authenticate_from_environment() -> CandleClient:
         raise AngelOneDataError(f"Set the missing Angel One environment variables: {', '.join(missing)}.")
     _suppress_sdk_logs()
     try:
-        from SmartApi import SmartConnect
+        # The installed SDK looks up the machine's public IP at import time
+        # through a third-party service, then overwrites it with a constant.
+        # Block that unnecessary outbound lookup; only Angel One receives the
+        # subsequent authentication and candle requests.
+        import requests
+
+        with patch.object(requests, "get", side_effect=OSError("SDK IP lookup disabled")):
+            from SmartApi import SmartConnect
         import pyotp
     except ImportError:
         raise AngelOneDataError("Install the Angel One SDK and pyotp before authenticating.") from None
@@ -141,6 +150,25 @@ def _transient_exception(exc: Exception) -> bool:
     ))
 
 
+def _rate_limited_exception(exc: Exception) -> bool:
+    message = str(exc).casefold()
+    return any(word in message for word in ("rate limit", "too many requests", "exceeding access rate"))
+
+
+def _rate_limited_response(response: Mapping[str, Any]) -> bool:
+    if str(response.get("errorcode")) == "AB1021":
+        return True
+    message = response.get("message", "")
+    return isinstance(message, str) and any(
+        word in message.casefold() for word in ("rate limit", "too many requests", "exceeding access rate")
+    )
+
+
+def _retry_delay(attempt: int, base_seconds: float, *, rate_limited: bool) -> float:
+    multiplier = 2 ** (attempt - 1)
+    return max(base_seconds, MIN_RATE_LIMIT_RETRY_SECONDS if rate_limited else 0.0) * multiplier
+
+
 def _transient_response(response: Mapping[str, Any]) -> bool:
     if _transient_code(response.get("errorcode")) or _transient_code(response.get("code")):
         return True
@@ -167,16 +195,22 @@ def _request_candles(
         try:
             response = client.getCandleData(dict(params))
         except Exception as exc:
+            rate_limited = _rate_limited_exception(exc)
             if attempt < max_attempts and _transient_exception(exc):
-                sleeper(retry_wait_seconds * (2 ** (attempt - 1)))
+                sleeper(_retry_delay(attempt, retry_wait_seconds, rate_limited=rate_limited))
                 continue
+            if rate_limited:
+                raise AngelOneDataError("Angel One historical access-rate limit blocked the candle request.") from None
             raise AngelOneDataError("Angel One daily candle request failed.") from None
         if not isinstance(response, Mapping):
             raise AngelOneDataError("Angel One returned an invalid daily candle response.")
         if response.get("status") is not True:
+            rate_limited = _rate_limited_response(response)
             if attempt < max_attempts and _transient_response(response):
-                sleeper(retry_wait_seconds * (2 ** (attempt - 1)))
+                sleeper(_retry_delay(attempt, retry_wait_seconds, rate_limited=rate_limited))
                 continue
+            if rate_limited:
+                raise AngelOneDataError("Angel One historical access-rate limit blocked the candle request.")
             raise AngelOneDataError("Angel One rejected a daily candle request.")
         candles = response.get("data")
         if candles is None:
@@ -252,14 +286,14 @@ def fetch_daily_candles(
     *,
     max_attempts: int = 3,
     retry_wait_seconds: float = 1.0,
-    request_delay_seconds: float = 0.5,
+    request_delay_seconds: float = 10.0,
     sleeper: Callable[[float], None] = time.sleep,
     raw_batches: list[dict[str, Any]] | None = None,
 ) -> pd.DataFrame:
     """Fetch validated, unadjusted daily NSE OHLCV for resolved instruments.
 
     The end date is exclusive. Each request covers at most 2,000 calendar days.
-    Distinct requests are spaced by half a second by default. Missing market
+    Distinct requests are spaced by ten seconds by default. Missing market
     sessions are left missing; zero index volume is valid.
     """
     first, stop = _parse_date(start, "start"), _parse_date(end, "end")

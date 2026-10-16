@@ -85,7 +85,7 @@ class AngelOneClientTests(unittest.TestCase):
             "fromdate": "2026-01-01 00:00", "todate": "2026-01-05 23:59",
         })
         self.assertEqual(len(raw_batches), 2)
-        self.assertEqual(spacing, [0.5])
+        self.assertEqual(spacing, [10.0])
         self.assertEqual(raw_batches[0]["data"], [candle("2026-01-02"), candle("2026-01-05")])
         self.assertFalse(any(key in raw_batches[0] for key in ("headers", "authentication", "jwtToken", "message")))
         with TemporaryDirectory(dir=PROJECT_ROOT / ".tmp") as directory:
@@ -132,12 +132,42 @@ class AngelOneClientTests(unittest.TestCase):
         fetch_daily_candles(rejected, [instrument()], "2026-01-01", "2026-01-06",
                             max_attempts=2, retry_wait_seconds=0, sleeper=waits.append)
         self.assertEqual(len(rejected.calls), 2)
+        self.assertEqual(waits[-1], 15.0)
         failed = FakeClient([RuntimeError("SECRET IN ERROR")])
         with self.assertRaises(AngelOneDataError) as context:
             fetch_daily_candles(failed, [instrument()], "2026-01-01", "2026-01-06",
                                 retry_wait_seconds=0, sleeper=waits.append)
         self.assertNotIn("SECRET", str(context.exception))
         self.assertEqual(len(failed.calls), 1)
+
+    def test_sdk_access_rate_exception_uses_long_retry_and_sanitized_error(self) -> None:
+        class DataException(Exception):
+            code = 502
+
+        message = "Access denied because of exceeding access rate; SECRET SESSION DATA"
+        waits: list[float] = []
+        client = FakeClient([
+            DataException(message),
+            {"status": True, "data": [candle("2026-01-02")]},
+        ])
+        result = fetch_daily_candles(
+            client, [instrument()], "2026-01-01", "2026-01-06",
+            max_attempts=2, retry_wait_seconds=0.25, sleeper=waits.append,
+        )
+        self.assertEqual(len(result), 1)
+        self.assertEqual(len(client.calls), 2)
+        self.assertEqual(waits, [15.0])
+
+        blocked = FakeClient([DataException(message), DataException(message)])
+        waits.clear()
+        with self.assertRaises(AngelOneDataError) as context:
+            fetch_daily_candles(
+                blocked, [instrument()], "2026-01-01", "2026-01-06",
+                max_attempts=2, retry_wait_seconds=0.25, sleeper=waits.append,
+            )
+        self.assertEqual(waits, [15.0])
+        self.assertIn("access-rate limit", str(context.exception))
+        self.assertNotIn("SECRET", str(context.exception))
 
     def test_invalid_duplicate_and_out_of_window_candles_are_rejected(self) -> None:
         invalid = [

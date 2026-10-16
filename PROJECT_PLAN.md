@@ -6,7 +6,7 @@ PortfolioPulse India is an Indian equity portfolio risk analytics and stress-tes
 
 This plan replaces the earlier multi-asset and yfinance-primary plan. Angel One SmartAPI daily historical candles are the primary data source. NSE reports are an independent reference for selected dates and closes. A source-labelled CSV is the operational fallback. The existing fictional demo and yfinance prototype remain separate development aids; neither is evidence that the Angel One pipeline works.
 
-Phase 0 reviewed the original scaffold. Phase 1 setup has been verified locally, with configuration and credential hygiene being brought into line with this plan. Phase 2 requires a live authenticated Angel One fetch before it can be signed off end to end. Phases 3–8 remain open. The phase audit is recorded in docs/REVISED_PLAN_AUDIT.md.
+Phase 0 reviewed the original scaffold and Phase 1 setup has been verified locally. Phase 2 meets this plan's sourced-CSV contingency: a real, source-labelled Indian six-instrument dataset was imported and checked for the 2024-01-02 to 2026-10-16 window. On 16 October 2026, live Angel One login succeeded, but the historical-candle endpoint returned HTTP 403 access-rate denials, so the Angel-specific live check remains pending. Phases 3–8 remain open. The phase audit is recorded in docs/REVISED_PLAN_AUDIT.md.
 
 ## Investment questions
 

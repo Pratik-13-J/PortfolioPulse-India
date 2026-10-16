@@ -10,7 +10,7 @@ The [revised project plan](PROJECT_PLAN.md) makes **Angel One SmartAPI daily can
 | --- | --- |
 | Phase 0 — review and structure | Passed: the Python package layout and imports were checked, and open financial issues were recorded. |
 | Phase 1 — environment and configuration | Verified after the revised setup and configuration repairs. The app and package can start locally without broker credentials. |
-| Phase 2 — Angel One data ingestion | **Open.** Public instrument-master validation, mocked candle ingestion, exact CSV replay and independent sourced-CSV import checks pass. An authenticated candle download and real sourced-CSV inspection remain pending. The earlier fictional CSV and yfinance checks do not satisfy this revised gate. |
+| Phase 2 — historical data ingestion | **Contingency path verified; Angel live candles pending.** Current Angel instrument-master resolution and authenticated login passed, but its historical endpoint returned HTTP 403 access-rate denials. A separate real, source-labelled Yahoo Finance OHLCV CSV imported successfully for NIFTY 50 and five NSE stocks. Mocked Angel ingestion and cache checks pass. |
 
 The existing dashboard still displays a fictional, INR-denominated demo portfolio. Its financial metrics, SQL workflows, scenarios and UI have not passed the later phase gates. See the [revised-plan audit](docs/REVISED_PLAN_AUDIT.md) for the precise Phase 0–2 findings.
 
@@ -56,7 +56,7 @@ Once a successful download creates a matching local candle CSV and metadata, rep
 .\.venv\Scripts\python.exe -m scripts.refresh_angelone --start 2024-01-02 --end 2026-10-16 --offline
 ```
 
-Offline mode needs the saved candle CSV and its source, token, date-window and checksum metadata. It does not request a current instrument master. The fictional demo CSV is not substituted for listed securities. The authenticated refresh cannot be considered verified until valid credentials are supplied and its returned candles and saved output are inspected.
+Offline mode needs the saved candle CSV and its source, token, date-window and checksum metadata. It does not request a current instrument master. The fictional demo CSV is not substituted for listed securities. The local credentials authenticated successfully on 16 October 2026, but Angel One denied historical candle requests with HTTP 403 access-rate responses. No Angel candle CSV has been saved, so offline replay of actual Angel data remains unverified. The client now spaces requests and backs off on that response; repeat a live refresh after Angel One historical access is available.
 
 ### Independently sourced CSV when broker access is unavailable
 
@@ -85,11 +85,19 @@ Replace the example URL and retrieval time with the real values; use `provider_a
 
 The importer checks instruments, OHLCV, dates, duplicates, source metadata and missing observations, then saves aligned closes, daily returns, coverage and provenance under ignored `data/processed/`. Its source claim is labelled **user declared and unverified** until independently checked; imported data is never labelled Angel One. It does not turn price observations into dividend-aware total returns.
 
+A local fallback retrieved on 16 October 2026 is available at `data/incoming/yahoo_nse_2024-01-02_2026-10-16.csv` with its same-stem provenance sidecar. It uses Yahoo Finance daily OHLCV through yfinance 1.7.0 with `auto_adjust=False` and is labelled `unadjusted_ohlcv`. Reproduce its import with:
+
+```powershell
+.\.venv\Scripts\python.exe -m scripts.import_sourced_csv --input data\incoming\yahoo_nse_2024-01-02_2026-10-16.csv --start 2024-01-02 --end 2026-10-16
+```
+
+The import contains 4,133 valid candles over 689 union dates, 688 shared price dates and 686 valid daily-return dates. Yahoo has no NIFTY 50 observation on 15 January 2026, which remains missing; returns touching that gap are excluded. These ignored local files are separate from the Angel One cache and are not included in a fresh checkout. A new checkout needs its own legally obtained source CSV and sidecar. Their source metadata and file checksums were checked locally, while independent NSE close comparisons remain a later verification step.
+
 ## Historical local demo and optional research path
 
 The checked-in `data/demo/prices.csv` contains **synthetic** weekday prices for eight fictional holdings across Indian equity sectors, gold and government debt, plus a fictional Nifty-style benchmark. `DEMO_` symbols are not listed securities. Weekdays are not a verified NSE holiday calendar, and the series contain no dividends, coupons or corporate-action adjustments. The existing dashboard reads this portfolio so that the interface can be demonstrated offline.
 
-The previously built yfinance pipeline is a separate optional research path. It downloads auto-adjusted daily values for listed Indian examples and a `^NSEI` **price-index** benchmark, then keeps a local cache under ignored `data/market/`. This path passed its own historical-data checks but is neither Angel One ingestion nor NSE validation. To run it:
+The previously built yfinance adjusted-close pipeline is a separate optional research path. It downloads auto-adjusted daily values for listed Indian examples and a `^NSEI` **price-index** benchmark, then keeps a local cache under ignored `data/market/`. That path is distinct from the unadjusted OHLCV fallback above; neither is Angel One ingestion or NSE validation. To run the older path:
 
 ```powershell
 .\.venv\Scripts\python.exe -m scripts.refresh_market_data --start 2024-01-02 --end 2026-10-16
@@ -100,7 +108,7 @@ These dates are an example; the start is inclusive and the end is exclusive. Off
 
 ## Revised workflow and financial boundaries
 
-The Phase 2 Angel One workflow is intended to validate current symbol/token/exchange mappings, retrieve daily OHLCV, record source and retrieval metadata, handle failures and rate limits, and permit local CSV fallback. Its stock and index candles are **price observations**, not automatically dividend- and corporate-action-adjusted total returns. A zero index volume is not automatically a failed quote. Missing prices must be reported rather than filled or fabricated. The Phase 2 gate requires mock-response checks and an authenticated retrieval before sign-off.
+The Phase 2 Angel One workflow validates current symbol/token/exchange mappings, retrieves daily OHLCV when provider access permits, records source and retrieval metadata, handles failures and rate limits, and permits local CSV fallback. Its stock and index candles are **price observations**, not automatically dividend- and corporate-action-adjusted total returns. A zero index volume is not automatically a failed quote. Missing prices must be reported rather than filled or fabricated. The Phase 2 live gate requires returned candles and saved output to be inspected before sign-off.
 
 Later phases will validate SQLite portfolio setup, buy-and-hold accounting, risk metrics, holding-level stress contributions, and the analyst dashboard. The confirmed portfolio model uses fixed quantities so market weights drift; target weights are a reference for allocation alerts. Any switch to a fixed-weight, periodically rebalanced model must be stated explicitly and its calculations retested.
 
