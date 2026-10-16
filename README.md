@@ -12,8 +12,9 @@ The [revised project plan](PROJECT_PLAN.md) makes **Angel One SmartAPI daily can
 | Phase 1 — environment and configuration | Verified after the revised setup and configuration repairs. The app and package can start locally without broker credentials. |
 | Phase 2 — historical data ingestion | **Contingency path verified; Angel live candles pending.** Current Angel instrument-master resolution and authenticated login passed, but its historical endpoint returned HTTP 403 access-rate denials. A separate real, source-labelled Yahoo Finance OHLCV CSV imported successfully for NIFTY 50 and five NSE stocks. Mocked Angel ingestion and cache checks pass. |
 | Phase 3 — data quality and SQLite | **Verified with the local Indian market CSV.** OHLCV, dates, source and adjustment basis are checked; missing observations and excluded returns are reported. The six-instrument buy-and-hold portfolio, 4,133 candles, source metadata, holding snapshot and validation settings are stored in SQLite. Repeat imports preserve the same dataset and run IDs. |
+| Phase 4 — portfolio analytics | **Verified on the saved Indian equity dataset.** Fixed share quantities generate drifting portfolio weights. Endpoint price performance, same-date NIFTY comparison, volatility, Sharpe, observed drawdown, historical VaR/ES, correlations and last matched-date weight risk contributions are calculated, stored and checked with hand-calculated examples. |
 
-The existing dashboard still displays a fictional, INR-denominated demo portfolio. Its financial metrics, scenarios and UI have not passed the later phase gates. See the [revised-plan audit](docs/REVISED_PLAN_AUDIT.md) and [Phase 3 verification record](docs/PHASE_3_DATA_SQL.md) for the precise findings.
+The existing dashboard still displays a fictional, INR-denominated demo portfolio. The real Phase 4 calculations are available through a separate command; the dashboard connection and Indian stress scenarios are later phase gates. See the [revised-plan audit](docs/REVISED_PLAN_AUDIT.md), [Phase 3 verification record](docs/PHASE_3_DATA_SQL.md) and [Phase 4 methodology](docs/PHASE_4_ANALYTICS.md).
 
 ## Windows PowerShell setup
 
@@ -104,6 +105,16 @@ After the Phase 2 sourced-CSV import, run the offline Phase 3 command with the s
 
 The command validates all six NSE instruments, checks source and price basis, records every observed gap, and stores the candles in `data/portfoliopulse.db`. It also writes a detailed quality report under ignored `data/processed/`. The SQLite dataset retains the exact fixed quantities and target weights used at import time, source/retrieval details, and a validation run linked to that dataset. Repeating an unchanged import returns the same IDs. For a verified Angel One cache, use `--source angel` with the matching date range; a live Angel One candle set is not available in this checkout. See [Phase 3 usage and results](docs/PHASE_3_DATA_SQL.md).
 
+### Phase 4: calculate Indian equity portfolio risk
+
+Run analytics on the Phase 3 dataset ID printed by the import command. This example uses an **illustrative 6% effective annual INR risk-free assumption** for Sharpe; change `--annual-rf` to your chosen assumption. The default is 0, and neither value is automatically fetched from RBI.
+
+```powershell
+.\.venv\Scripts\python.exe -m scripts.analyze_phase4 --dataset-id 1 --annual-rf 0.06 --confidence 0.95
+```
+
+The command prints key portfolio and NIFTY 50 **price-return** figures, saves finite scalar metrics with the chosen assumptions in SQLite, and writes a detailed JSON report plus reviewable time-series CSVs under ignored `data/processed/`. It uses the fixed share quantities saved with that dataset, even if current portfolio settings change. A missing benchmark quote excludes the adjacent one-day comparison returns, while an observed portfolio loss on that date still counts in portfolio drawdown. See [the exact formulas, sample result and limitations](docs/PHASE_4_ANALYTICS.md).
+
 ## Historical local demo and optional research path
 
 The checked-in `data/demo/prices.csv` contains **synthetic** weekday prices for eight fictional holdings across Indian equity sectors, gold and government debt, plus a fictional Nifty-style benchmark. `DEMO_` symbols are not listed securities. Weekdays are not a verified NSE holiday calendar, and the series contain no dividends, coupons or corporate-action adjustments. The existing dashboard reads this portfolio so that the interface can be demonstrated offline.
@@ -121,6 +132,6 @@ These dates are an example; the start is inclusive and the end is exclusive. Off
 
 The Phase 2 Angel One workflow validates current symbol/token/exchange mappings, retrieves daily OHLCV when provider access permits, records source and retrieval metadata, handles failures and rate limits, and permits local CSV fallback. Its stock and index candles are **price observations**, not automatically dividend- and corporate-action-adjusted total returns. A zero index volume is not automatically a failed quote. Missing prices must be reported rather than filled or fabricated. The Phase 2 live gate requires returned candles and saved output to be inspected before sign-off.
 
-Later phases will validate buy-and-hold accounting, risk metrics, holding-level stress contributions, and the analyst dashboard. The confirmed portfolio model uses fixed quantities so market weights drift; target weights are a reference for allocation alerts. Any switch to a fixed-weight, periodically rebalanced model must be stated explicitly and its calculations retested.
+Later phases will add holding-level stress contributions and connect the tested real-data calculations to the analyst dashboard. The confirmed portfolio model uses fixed quantities so market weights drift; target weights are a reference for allocation alerts. Any switch to a fixed-weight, periodically rebalanced model must be stated explicitly and its calculations retested.
 
 This is an educational analysis tool, not investment advice, a forecast or a trading system. Reported historical losses and hypothetical shocks depend on the chosen data, window and methodology. Market-data licensing and exchange terms need review before any public redistribution.

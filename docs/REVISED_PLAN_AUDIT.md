@@ -43,8 +43,12 @@ Angel One unadjusted candle closes must not be silently mixed with yfinance auto
 
 **Result: verified with the local sourced-CSV contingency.** The source-independent validator checks positive OHLC prices, non-negative volume, duplicate symbol/date keys, OHLC consistency, UTC retrieval stamps, source and declared adjustment basis. It aligns on observed dates only and reports missing observations and the return dates excluded around a gap. The SQLite layer stores the configured INR portfolio, NIFTY 50 benchmark, immutable holding snapshot, provider-specific OHLCV dataset, per-candle retrieval time, validation settings and future scalar result slots. Repeat imports are idempotent and an invalid SQL batch rolls back. The existing fictional dashboard tables remain intact. Full details and limitations are in [PHASE_3_DATA_SQL.md](PHASE_3_DATA_SQL.md).
 
+## Phase 4 — portfolio analytics
+
+**Result: verified on the saved Indian equity dataset and small hand-calculated fixtures.** The real analysis reads the immutable fixed quantities attached to the chosen SQLite dataset, calculates drifting market weights and buy-and-hold portfolio value, and compares with NIFTY 50 on valid matching daily returns. It calculates endpoint annualized price performance, sample volatility, Sharpe with an explicitly chosen annual INR risk-free assumption, observed maximum drawdown, nearest-rank historical one-day VaR/ES, correlation and latest-weight covariance risk contributions. A regression check preserves a portfolio drawdown occurring on a benchmark-missing date. Results, assumptions and finite scalar values are saved with the dataset lineage. The existing Streamlit dashboard is still on the separate fictional portfolio. See [PHASE_4_ANALYTICS.md](PHASE_4_ANALYTICS.md) for formulas, sample numbers and limitations.
+
 ## Later gates and decisions
 
-P4 validates the portfolio accounting and risk formulas on hand-calculated examples. P5–P8 cover Indian stress scenarios, the dashboard, end-to-end financial validation and interview handoff. Existing screens and functions are starter material until their gates pass.
+P5–P8 cover Indian stress scenarios, the real-data dashboard, end-to-end financial validation and interview handoff. Existing screens and functions are starter material until their gates pass.
 
-The user previously chose **buy and hold**: fixed quantities with drifting market weights. The new attachment's P4 prompt says “fixed weights,” which may imply periodic rebalancing. The project should retain the confirmed buy-and-hold model unless the user explicitly changes that accounting decision; the final methodology must state the chosen convention and tests must match it.
+The user reconfirmed **buy and hold** for Phase 4: fixed quantities with drifting market weights. This resolves the new prompt's “fixed weights” wording; the implemented formula and tests follow the confirmed buy-and-hold convention.

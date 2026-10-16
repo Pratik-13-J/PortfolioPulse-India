@@ -6,7 +6,7 @@ PortfolioPulse India is an Indian equity portfolio risk analytics and stress-tes
 
 This plan replaces the earlier multi-asset and yfinance-primary plan. Angel One SmartAPI daily historical candles are the primary data source. NSE reports are an independent reference for selected dates and closes. A source-labelled CSV is the operational fallback. The existing fictional demo and yfinance prototype remain separate development aids; neither is evidence that the Angel One pipeline works.
 
-Phase 0 reviewed the original scaffold and Phase 1 setup has been verified locally. Phase 2 meets this plan's sourced-CSV contingency: a real, source-labelled Indian six-instrument dataset was imported and checked for the 2024-01-02 to 2026-10-16 window. On 16 October 2026, live Angel One login succeeded, but the historical-candle endpoint returned HTTP 403 access-rate denials, so the Angel-specific live check remains pending. Phase 3 data quality and SQLite storage have been verified with that local dataset; [the Phase 3 record](docs/PHASE_3_DATA_SQL.md) has the counts and limits. Phases 4–8 remain open. The phase audit is recorded in docs/REVISED_PLAN_AUDIT.md.
+Phase 0 reviewed the original scaffold and Phase 1 setup has been verified locally. Phase 2 meets this plan's sourced-CSV contingency: a real, source-labelled Indian six-instrument dataset was imported and checked for the 2024-01-02 to 2026-10-16 window. On 16 October 2026, live Angel One login succeeded, but the historical-candle endpoint returned HTTP 403 access-rate denials, so the Angel-specific live check remains pending. Phase 3 data quality and SQLite storage have been verified with that local dataset; [the Phase 3 record](docs/PHASE_3_DATA_SQL.md) has the counts and limits. Phase 4 buy-and-hold price analytics are implemented and verified on the same saved dataset; [its methodology record](docs/PHASE_4_ANALYTICS.md) explains the formulas and limits. Phases 5–8 remain open. The phase audit is recorded in docs/REVISED_PLAN_AUDIT.md.
 
 ## Investment questions
 
@@ -45,7 +45,9 @@ The existing portfoliopulse package can meet the proposed separation without a d
 - portfoliopulse/sourced_csv.py — independent, source-labelled NSE OHLCV import and date alignment when broker access is unavailable.
 - portfoliopulse/data.py — source-independent date alignment and price validation.
 - portfoliopulse/database.py and schema.sql — parameterized SQLite access, transactions, instruments, portfolios, daily observations, provenance, and saved analytics.
-- portfoliopulse/analytics.py — pure portfolio return and risk calculations.
+- portfoliopulse/analytics.py — earlier fictional-dashboard calculations.
+- portfoliopulse/portfolio_returns.py and risk_metrics.py — pure real-portfolio buy-and-hold return and risk calculations.
+- portfoliopulse/portfolio_analysis.py — dataset-linked calculation and SQL result orchestration, separate from Streamlit.
 - portfoliopulse/scenarios.py — hypothetical shocks and attribution.
 - portfoliopulse/briefing.py — deterministic explanation based on computed numbers.
 - app.py — Streamlit controls and presentation only.

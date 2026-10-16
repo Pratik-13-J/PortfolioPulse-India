@@ -578,12 +578,10 @@ def get_candle_dataset(dataset_id: int, *, path: Path = DB_PATH) -> pd.DataFrame
     return frame
 
 
-def save_analysis_metadata(
-    dataset_id: int, *, portfolio_name: str = REAL_PORTFOLIO_NAME,
-    window_start: str, window_end: str, settings: Mapping[str, Any],
-    quality: Mapping[str, Any], path: Path = DB_PATH,
-) -> int:
-    """Record analysis settings and exclusions against a chosen dataset."""
+def _serialized_analysis_inputs(
+    window_start: str, window_end: str,
+    settings: Mapping[str, Any], quality: Mapping[str, Any],
+) -> tuple[str, str]:
     start, end = _iso_day(window_start, "window_start"), _iso_day(window_end, "window_end")
     if start > end:
         raise ValueError("Analysis window_start must not exceed window_end.")
@@ -594,37 +592,53 @@ def save_analysis_metadata(
         quality_json = json.dumps(dict(quality), sort_keys=True, allow_nan=False)
     except (TypeError, ValueError) as exc:
         raise ValueError("Analysis metadata must be JSON-serializable and finite.") from exc
+    return settings_json, quality_json
+
+
+def _insert_analysis_metadata(
+    con: sqlite3.Connection, dataset_id: int, portfolio_name: str,
+    window_start: str, window_end: str, settings_json: str, quality_json: str,
+) -> int:
+    dataset = con.execute(
+        """SELECT d.portfolio_id, d.window_start, d.window_end_exclusive
+           FROM candle_datasets d JOIN portfolios p USING(portfolio_id)
+           WHERE d.dataset_id=? AND p.name=?""", (dataset_id, portfolio_name),
+    ).fetchone()
+    if dataset is None:
+        raise ValueError("Analysis dataset does not belong to the named portfolio.")
+    if window_start < dataset["window_start"] or window_end >= dataset["window_end_exclusive"]:
+        raise ValueError("Analysis window must be inside the chosen dataset window.")
+    con.execute(
+        """INSERT INTO analysis_metadata(dataset_id,portfolio_id,window_start,window_end,settings_json,quality_json)
+           VALUES(?,?,?,?,?,?) ON CONFLICT(dataset_id,portfolio_id,window_start,window_end,settings_json,quality_json)
+           DO NOTHING""",
+        (dataset_id, dataset["portfolio_id"], window_start, window_end, settings_json, quality_json),
+    )
+    row = con.execute(
+        """SELECT analysis_id FROM analysis_metadata WHERE dataset_id=? AND portfolio_id=?
+           AND window_start=? AND window_end=? AND settings_json=? AND quality_json=?""",
+        (dataset_id, dataset["portfolio_id"], window_start, window_end, settings_json, quality_json),
+    ).fetchone()
+    return int(row[0])
+
+
+def save_analysis_metadata(
+    dataset_id: int, *, portfolio_name: str = REAL_PORTFOLIO_NAME,
+    window_start: str, window_end: str, settings: Mapping[str, Any],
+    quality: Mapping[str, Any], path: Path = DB_PATH,
+) -> int:
+    """Record analysis settings and exclusions against a chosen dataset."""
+    settings_json, quality_json = _serialized_analysis_inputs(window_start, window_end, settings, quality)
     with session(path) as con:
-        dataset = con.execute(
-            """SELECT d.portfolio_id, d.window_start, d.window_end_exclusive
-               FROM candle_datasets d JOIN portfolios p USING(portfolio_id)
-               WHERE d.dataset_id=? AND p.name=?""", (dataset_id, portfolio_name),
-        ).fetchone()
-        if dataset is None:
-            raise ValueError("Analysis dataset does not belong to the named portfolio.")
-        if window_start < dataset["window_start"] or window_end >= dataset["window_end_exclusive"]:
-            raise ValueError("Analysis window must be inside the chosen dataset window.")
-        con.execute(
-            """INSERT INTO analysis_metadata(dataset_id,portfolio_id,window_start,window_end,settings_json,quality_json)
-               VALUES(?,?,?,?,?,?) ON CONFLICT(dataset_id,portfolio_id,window_start,window_end,settings_json,quality_json)
-               DO NOTHING""",
-            (dataset_id, dataset["portfolio_id"], window_start, window_end, settings_json, quality_json),
+        return _insert_analysis_metadata(
+            con, dataset_id, portfolio_name, window_start, window_end, settings_json, quality_json,
         )
-        row = con.execute(
-            """SELECT analysis_id FROM analysis_metadata WHERE dataset_id=? AND portfolio_id=?
-               AND window_start=? AND window_end=? AND settings_json=? AND quality_json=?""",
-            (dataset_id, dataset["portfolio_id"], window_start, window_end, settings_json, quality_json),
-        ).fetchone()
-        return int(row[0])
 
 
-def save_analysis_results(
-    analysis_id: int, metrics: Mapping[str, tuple[float, str]], *, path: Path = DB_PATH,
-) -> None:
-    """Atomically replace scalar results for one recorded analysis run."""
+def _validated_analysis_metrics(metrics: Mapping[str, tuple[float, str]]) -> list[tuple[str, float, str]]:
     if not isinstance(metrics, Mapping) or not metrics:
         raise ValueError("Analysis metrics must be a non-empty name-to-(value,unit) mapping.")
-    rows: list[tuple[int, str, float, str]] = []
+    rows: list[tuple[str, float, str]] = []
     for name, metric in metrics.items():
         if not isinstance(name, str) or not name.strip() or not isinstance(metric, (tuple, list)) or len(metric) != 2:
             raise ValueError("Each analysis metric needs a name, finite value and unit.")
@@ -635,11 +649,48 @@ def save_analysis_results(
             raise ValueError("Analysis metric values must be finite numbers.") from exc
         if not math.isfinite(number) or not isinstance(unit, str) or not unit.strip():
             raise ValueError("Analysis metric values must be finite and units non-empty.")
-        rows.append((analysis_id, name, number, unit))
+        rows.append((name, number, unit))
+    return rows
+
+
+def _replace_analysis_results(
+    con: sqlite3.Connection, analysis_id: int, rows: list[tuple[str, float, str]],
+) -> None:
+    con.execute("DELETE FROM analysis_results WHERE analysis_id=?", (analysis_id,))
+    con.executemany(
+        "INSERT INTO analysis_results(analysis_id,metric_name,value,unit) VALUES(?,?,?,?)",
+        [(analysis_id, name, number, unit) for name, number, unit in rows],
+    )
+
+
+def save_analysis_results(
+    analysis_id: int, metrics: Mapping[str, tuple[float, str]], *, path: Path = DB_PATH,
+) -> None:
+    """Atomically replace scalar results for one recorded analysis run."""
+    rows = _validated_analysis_metrics(metrics)
     with session(path) as con:
         if con.execute("SELECT 1 FROM analysis_metadata WHERE analysis_id=?", (analysis_id,)).fetchone() is None:
             raise ValueError("Analysis run does not exist.")
-        con.execute("DELETE FROM analysis_results WHERE analysis_id=?", (analysis_id,))
-        con.executemany(
-            "INSERT INTO analysis_results(analysis_id,metric_name,value,unit) VALUES(?,?,?,?)", rows,
+        _replace_analysis_results(con, analysis_id, rows)
+
+
+def save_analysis_run(
+    dataset_id: int, *, portfolio_name: str = REAL_PORTFOLIO_NAME,
+    window_start: str, window_end: str, settings: Mapping[str, Any],
+    quality: Mapping[str, Any], metrics: Mapping[str, tuple[float, str]],
+    path: Path = DB_PATH,
+) -> int:
+    """Save metadata and finite scalar metrics in one SQLite transaction.
+
+    A failed result insert rolls back a newly inserted metadata row, too.
+    Repeating identical inputs returns the same run ID and replaces its
+    result rows atomically.
+    """
+    settings_json, quality_json = _serialized_analysis_inputs(window_start, window_end, settings, quality)
+    rows = _validated_analysis_metrics(metrics)
+    with session(path) as con:
+        analysis_id = _insert_analysis_metadata(
+            con, dataset_id, portfolio_name, window_start, window_end, settings_json, quality_json,
         )
+        _replace_analysis_results(con, analysis_id, rows)
+        return analysis_id
