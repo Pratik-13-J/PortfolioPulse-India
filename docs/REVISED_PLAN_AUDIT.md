@@ -39,8 +39,12 @@ The new P2 gate requires:
 
 Angel One unadjusted candle closes must not be silently mixed with yfinance auto-adjusted values or called total returns. Store adjustment basis with data and disclose the distinction in later calculations and charts. API and exchange data-use terms require review before public redistribution.
 
+## Phase 3 — data quality and SQLite
+
+**Result: verified with the local sourced-CSV contingency.** The source-independent validator checks positive OHLC prices, non-negative volume, duplicate symbol/date keys, OHLC consistency, UTC retrieval stamps, source and declared adjustment basis. It aligns on observed dates only and reports missing observations and the return dates excluded around a gap. The SQLite layer stores the configured INR portfolio, NIFTY 50 benchmark, immutable holding snapshot, provider-specific OHLCV dataset, per-candle retrieval time, validation settings and future scalar result slots. Repeat imports are idempotent and an invalid SQL batch rolls back. The existing fictional dashboard tables remain intact. Full details and limitations are in [PHASE_3_DATA_SQL.md](PHASE_3_DATA_SQL.md).
+
 ## Later gates and decisions
 
-P3 reviews OHLCV validation, SQL constraints, portfolio configurations and stored result lineage. P4 validates the portfolio accounting and risk formulas on hand-calculated examples. P5–P8 cover Indian stress scenarios, the dashboard, end-to-end financial validation and interview handoff. Existing screens and functions are starter material until their gates pass.
+P4 validates the portfolio accounting and risk formulas on hand-calculated examples. P5–P8 cover Indian stress scenarios, the dashboard, end-to-end financial validation and interview handoff. Existing screens and functions are starter material until their gates pass.
 
 The user previously chose **buy and hold**: fixed quantities with drifting market weights. The new attachment's P4 prompt says “fixed weights,” which may imply periodic rebalancing. The project should retain the confirmed buy-and-hold model unless the user explicitly changes that accounting decision; the final methodology must state the chosen convention and tests must match it.

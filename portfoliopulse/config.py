@@ -8,5 +8,6 @@ DEMO_CSV_PATH = PROJECT_ROOT / "data" / "demo" / "prices.csv"
 MARKET_CSV_PATH = PROJECT_ROOT / "data" / "market" / "adjusted_prices.csv"
 SCHEMA_PATH = Path(__file__).with_name("schema.sql")
 PORTFOLIO_NAME = "India Demo Portfolio"
+REAL_PORTFOLIO_NAME = "NSE Retail Buy and Hold"
 BENCHMARK_SYMBOL = "DEMO_NIFTY50"
 TRADING_DAYS_PER_YEAR = 252
