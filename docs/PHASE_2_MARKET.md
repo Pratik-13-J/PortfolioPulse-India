@@ -1,5 +1,7 @@
 # Phase 2 historical market-data verification — 16 October 2026
 
+Historical yfinance gate only. It does not verify the revised Angel One Phase 2 gate; see [the revised plan audit](REVISED_PLAN_AUDIT.md).
+
 ## Audit of the original Phase 2 sign-off
 
 The earlier sign-off covered the **fictional offline demo only**. It did not meet the subsequently supplied P2 definition requiring yfinance adjusted historical downloads and fallback after a download failure. That claim has been corrected in the README and project plan.

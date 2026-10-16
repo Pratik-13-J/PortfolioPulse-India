@@ -1,5 +1,7 @@
 # Phase 2 data record — 16 October 2026
 
+Historical fictional-demo gate only. The revised Angel One Phase 2 gate remains open; see [the revised plan audit](REVISED_PLAN_AUDIT.md).
+
 ## Scope and portfolio
 
 The user requested a dummy INR portfolio for now. The checked-in `data/demo/prices.csv` contains 6,453 fictional observations for nine `DEMO_` instruments across 717 weekdays, from 2 January 2024 to 30 September 2026. Eight are holdings and one is a separate Nifty 50-style benchmark. The portfolio holds fictional energy, banking, IT, healthcare, consumer staples and auto stocks, plus gold and government-debt ETF proxies. Fixed unit quantities support the confirmed buy-and-hold model; target weights sum to 100%.

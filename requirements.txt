@@ -3,3 +3,8 @@ pandas==3.0.6
 plotly==7.1.0
 streamlit==1.66.0
 yfinance==1.7.0
+smartapi-python==1.5.5
+pyotp==2.10.0
+python-dotenv==1.2.4
+logzero==1.7.0
+websocket-client==1.9.2

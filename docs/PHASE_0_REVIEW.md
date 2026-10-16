@@ -1,5 +1,7 @@
 # Phase 0 review — 16 October 2026
 
+Historical review under the earlier project scope. See [the revised plan audit](REVISED_PLAN_AUDIT.md) for current phase status.
+
 ## Confirmed scope
 
 - Audience: Indian retail-investor perspective with clear analyst-quality calculations for the Russell Investments Asset Allocation Intern application.

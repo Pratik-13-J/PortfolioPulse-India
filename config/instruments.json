@@ -1,0 +1,58 @@
+{
+  "schema_version": 1,
+  "base_currency": "INR",
+  "interval": "ONE_DAY",
+  "benchmark": {
+    "symbol": "NIFTY 50",
+    "trading_symbol": "Nifty 50",
+    "exchange": "NSE",
+    "asset_class": "Benchmark"
+  },
+  "holdings": [
+    {
+      "symbol": "RELIANCE",
+      "trading_symbol": "RELIANCE-EQ",
+      "exchange": "NSE",
+      "asset_class": "Equity",
+      "sector": "Energy",
+      "quantity": 20,
+      "target_weight": 0.2
+    },
+    {
+      "symbol": "HDFCBANK",
+      "trading_symbol": "HDFCBANK-EQ",
+      "exchange": "NSE",
+      "asset_class": "Equity",
+      "sector": "Banking",
+      "quantity": 25,
+      "target_weight": 0.2
+    },
+    {
+      "symbol": "INFY",
+      "trading_symbol": "INFY-EQ",
+      "exchange": "NSE",
+      "asset_class": "Equity",
+      "sector": "Information Technology",
+      "quantity": 20,
+      "target_weight": 0.2
+    },
+    {
+      "symbol": "ICICIBANK",
+      "trading_symbol": "ICICIBANK-EQ",
+      "exchange": "NSE",
+      "asset_class": "Equity",
+      "sector": "Banking",
+      "quantity": 25,
+      "target_weight": 0.2
+    },
+    {
+      "symbol": "ITC",
+      "trading_symbol": "ITC-EQ",
+      "exchange": "NSE",
+      "asset_class": "Equity",
+      "sector": "Consumer Staples",
+      "quantity": 75,
+      "target_weight": 0.2
+    }
+  ]
+}

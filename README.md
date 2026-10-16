@@ -1,14 +1,22 @@
-# PortfolioPulse
+# PortfolioPulse India
 
-India-first portfolio risk monitor built with Python, SQLite, Streamlit, and Plotly.
+Indian equity portfolio risk analytics and stress testing with Python, SQLite, Streamlit and Plotly.
 
-**Status:** Phases 0–2 are complete for the local build. The dashboard still opens the fictional demo portfolio; a separate Indian listed sample portfolio now has a tested yfinance adjusted-price pipeline and a local CSV cache. Financial calculations and dashboard behavior still need the later gates in [PROJECT_PLAN.md](PROJECT_PLAN.md). See the [Phase 2 demo record](docs/PHASE_2_DATA.md) and [market-data verification](docs/PHASE_2_MARKET.md).
+## Project status
 
-This offline-first MVP demonstrates portfolio return and risk analytics, data persistence, allocation review, and what-if scenarios. The included prices are **synthetic demo data**, not market observations. No trades, forecasts, or personalized investment advice are produced.
+The [revised project plan](PROJECT_PLAN.md) makes **Angel One SmartAPI daily candles the primary market data source**, with NSE reports used for selected independent checks. The initial portfolio is an Indian equity example compared with NIFTY 50. Gold, government debt and mutual funds are possible extensions once compatible data and methods are established; the current market-data workflow is not a complete institutional multi-asset portfolio.
+
+| Gate | Current result |
+| --- | --- |
+| Phase 0 — review and structure | Passed: the Python package layout and imports were checked, and open financial issues were recorded. |
+| Phase 1 — environment and configuration | Verified after the revised setup and configuration repairs. The app and package can start locally without broker credentials. |
+| Phase 2 — Angel One data ingestion | **Open.** Public instrument-master validation, mocked candle ingestion, exact CSV replay and independent sourced-CSV import checks pass. An authenticated candle download and real sourced-CSV inspection remain pending. The earlier fictional CSV and yfinance checks do not satisfy this revised gate. |
+
+The existing dashboard still displays a fictional, INR-denominated demo portfolio. Its financial metrics, SQL workflows, scenarios and UI have not passed the later phase gates. See the [revised-plan audit](docs/REVISED_PLAN_AUDIT.md) for the precise Phase 0–2 findings.
 
 ## Windows PowerShell setup
 
-Run these commands from this project folder with Python 3.12 installed:
+Run from the repository folder with Python 3.12:
 
 ```powershell
 New-Item -ItemType Directory -Force .tmp | Out-Null
@@ -21,49 +29,79 @@ python -m venv .venv
 .\.venv\Scripts\python.exe -m streamlit run app.py
 ```
 
-The temporary-directory settings keep Python package setup inside the project on restricted Windows machines. To open the project in VS Code, run `code .` from the same folder if the VS Code command is installed.
+The temporary-directory settings keep package installation inside the repository on restricted Windows machines. To open the folder in VS Code, use `code .` if its command is installed.
 
-The local database path is `data/portfoliopulse.db`. The checked-in offline fallback is `data/demo/prices.csv`. Running the seed command again is safe: it leaves an already populated demo portfolio alone. An older Phase 1 synthetic portfolio may remain in a local database, but the dashboard selects the new India Demo Portfolio.
+The starter dashboard and bundled fictional CSV need no API credentials. The local SQLite database is `data/portfoliopulse.db`; it is excluded from Git. The seed command is idempotent for an already populated demo portfolio.
 
-To check the starter database without running the dashboard:
+### Angel One credentials and daily data
+
+For an authenticated Angel One refresh, copy the example file to a local `.env`, then fill the four named values in that local file:
 
 ```powershell
-.\.venv\Scripts\python.exe -c "from portfoliopulse.database import connect; c=connect(); print(c.execute('SELECT COUNT(*) FROM market_observations').fetchone()[0]); c.close()"
+Copy-Item .env.example .env
+notepad .env
 ```
 
-## What it shows
+The variable names are `ANGELONE_API_KEY`, `ANGELONE_CLIENT_ID`, `ANGELONE_PASSWORD` and `ANGELONE_TOTP_SECRET`. The refresh command loads the project `.env` locally; `.env` is ignored by Git. Keep credentials out of code, screenshots, issues and chat messages. The Angel One refresh checks current instrument-master mappings; no stock token should be assumed from an older example.
 
-- INR-denominated portfolio value and weights from user-editable quantities.
-- Cumulative return, annualized return and volatility, Sharpe ratio, maximum drawdown, historical VaR/expected shortfall, and rolling volatility.
-- Benchmark comparison against the included fictional Nifty-style demo series.
-- Allocation drift, concentration (HHI), correlation, and configurable shock scenarios with loss contribution.
-- A deterministic analyst-style briefing whose statements come from the calculated results.
+Run the daily-candle refresh with an inclusive start and exclusive end date:
 
-## Data and methodology
+```powershell
+.\.venv\Scripts\python.exe -m scripts.refresh_angelone --start 2024-01-02 --end 2026-10-16
+```
 
-The bundled series are generated deterministically for interface and workflow demonstration only. The portfolio has six fictional Indian equity stocks (energy, banking, IT, healthcare, consumer staples, automobiles), a fictional gold ETF, a fictional government bond ETF, and a separate Nifty-style benchmark. The `DEMO_` prefix keeps them visibly distinct from listed securities. The CSV covers weekdays from 2 January 2024 through 30 September 2026; these are **not** actual Indian exchange sessions, and prices are **not** corporate-action-adjusted or total-return observations.
+Once a successful download creates a matching local candle CSV and metadata, replay that exact date range without network access:
 
-The data path validates symbol, ISO date, finite positive price, duplicates and common-date coverage before import. It does not fill missing prices. The dashboard blocks risk calculation for a selected window with missing instrument or benchmark observations. To import another CSV, use `symbol,date,close_value` in the dashboard; symbols must match the fictional demo universe. This import updates observations in SQLite and records the uploaded filename as source.
+```powershell
+.\.venv\Scripts\python.exe -m scripts.refresh_angelone --start 2024-01-02 --end 2026-10-16 --offline
+```
 
-For the **separate real-ticker sample portfolio**, `scripts.refresh_market_data` downloads daily auto-adjusted `Close` values from yfinance for six NSE stocks, a gold ETF, a long-term gilt ETF and the `^NSEI` Nifty 50 **price index** benchmark. It writes an adjusted-price CSV, a checksum-protected metadata file, aligned prices, daily returns and coverage to ignored local `data/market/`. The cache is used after a failed download only when its symbols, exact date window and adjustment basis match. This pipeline is not yet connected to the demo dashboard or SQLite portfolio setup; that integration belongs to Phases 3 and 6. Yahoo data is a research input rather than an authoritative or redistribution-ready feed.
+Offline mode needs the saved candle CSV and its source, token, date-window and checksum metadata. It does not request a current instrument master. The fictional demo CSV is not substituted for listed securities. The authenticated refresh cannot be considered verified until valid credentials are supplied and its returned candles and saved output are inspected.
+
+### Independently sourced CSV when broker access is unavailable
+
+Place a real, legally obtained daily OHLCV file at `data/incoming/prices.csv` and a provenance sidecar at `data/incoming/prices.meta.json`. Both stay local and are ignored by Git. This path uses the same six configured NSE instruments but is kept separate from the Angel One cache. The CSV header must be exactly:
+
+```text
+symbol,trading_symbol,exchange,date,open,high,low,close,volume
+```
+
+Use the logical and trading symbols in [config/instruments.json](config/instruments.json), actual `YYYY-MM-DD` observation dates and actual prices. The sidecar must record the true source and price convention:
+
+```json
+{
+  "source_name": "actual provider or report name",
+  "source_url": "https://example.com/actual-report-page",
+  "retrieved_at_utc": "2026-10-16T09:00:00+00:00",
+  "price_basis": "unadjusted_ohlcv"
+}
+```
+
+Replace the example URL and retrieval time with the real values; use `provider_adjusted_ohlcv` only if the provider actually adjusted every OHLC field. Import the exact window with:
+
+```powershell
+.\.venv\Scripts\python.exe -m scripts.import_sourced_csv --input data\incoming\prices.csv --start 2024-01-02 --end 2026-10-16
+```
+
+The importer checks instruments, OHLCV, dates, duplicates, source metadata and missing observations, then saves aligned closes, daily returns, coverage and provenance under ignored `data/processed/`. Its source claim is labelled **user declared and unverified** until independently checked; imported data is never labelled Angel One. It does not turn price observations into dividend-aware total returns.
+
+## Historical local demo and optional research path
+
+The checked-in `data/demo/prices.csv` contains **synthetic** weekday prices for eight fictional holdings across Indian equity sectors, gold and government debt, plus a fictional Nifty-style benchmark. `DEMO_` symbols are not listed securities. Weekdays are not a verified NSE holiday calendar, and the series contain no dividends, coupons or corporate-action adjustments. The existing dashboard reads this portfolio so that the interface can be demonstrated offline.
+
+The previously built yfinance pipeline is a separate optional research path. It downloads auto-adjusted daily values for listed Indian examples and a `^NSEI` **price-index** benchmark, then keeps a local cache under ignored `data/market/`. This path passed its own historical-data checks but is neither Angel One ingestion nor NSE validation. To run it:
 
 ```powershell
 .\.venv\Scripts\python.exe -m scripts.refresh_market_data --start 2024-01-02 --end 2026-10-16
 .\.venv\Scripts\python.exe -m scripts.refresh_market_data --start 2024-01-02 --end 2026-10-16 --offline
 ```
 
-`--start` is inclusive and `--end` is exclusive. Offline mode requires a previous successful download for those exact dates and tickers. The real downloaded CSV is kept locally and ignored by Git; the checked-in fictional CSV remains the fresh-clone fallback for demonstrating the dashboard without a network connection.
+These dates are an example; the start is inclusive and the end is exclusive. Offline reload requires a prior successful download with the same symbols, dates and adjustment basis. The listed sample is not yet connected to the demo dashboard or SQLite portfolio. See the [fictional-data record](docs/PHASE_2_DATA.md) and [yfinance verification record](docs/PHASE_2_MARKET.md) for what those historical checks actually established.
 
-Run Phase 2 checks:
+## Revised workflow and financial boundaries
 
-```powershell
-.\.venv\Scripts\python.exe -m unittest discover -s tests -v
-```
+The Phase 2 Angel One workflow is intended to validate current symbol/token/exchange mappings, retrieve daily OHLCV, record source and retrieval metadata, handle failures and rate limits, and permit local CSV fallback. Its stock and index candles are **price observations**, not automatically dividend- and corporate-action-adjusted total returns. A zero index volume is not automatically a failed quote. Missing prices must be reported rather than filled or fabricated. The Phase 2 gate requires mock-response checks and an authenticated retrieval before sign-off.
 
-Returns are computed from daily portfolio market values using fixed unit holdings (no automatic rebalancing). Annualization assumes 252 trading observations. Historical VaR is the positive loss threshold at the selected confidence level; expected shortfall is the average loss in the tail beyond that threshold. These measures depend on the selected historical window and do not predict future losses. The Sharpe ratio uses a configurable annual risk-free assumption, defaulting to 0% for this illustrative dataset.
+Later phases will validate SQLite portfolio setup, buy-and-hold accounting, risk metrics, holding-level stress contributions, and the analyst dashboard. The confirmed portfolio model uses fixed quantities so market weights drift; target weights are a reference for allocation alerts. Any switch to a fixed-weight, periodically rebalanced model must be stated explicitly and its calculations retested.
 
-## SQL design
-
-SQLite uses normalized `instruments`, `portfolios`, `holdings`, `market_observations`, `risk_runs`, `risk_metrics`, and scenario tables. Instrument rows include asset class and sector. Imports use parameterized statements, foreign keys, uniqueness constraints, and idempotent upserts. Connections close after every database operation. Analytics are calculated in Python; SQL joins holdings to instrument metadata, persists each run and its method metadata, and retrieves portfolio/scenario histories.
-
-See [PROJECT_PLAN.md](PROJECT_PLAN.md) for the full scope, the confirmed buy-and-hold model and the phase gates.
+This is an educational analysis tool, not investment advice, a forecast or a trading system. Reported historical losses and hypothetical shocks depend on the chosen data, window and methodology. Market-data licensing and exchange terms need review before any public redistribution.

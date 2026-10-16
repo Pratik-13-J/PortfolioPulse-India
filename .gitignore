@@ -5,8 +5,15 @@ __pycache__/
 .pytest_cache/
 .ruff_cache/
 .coverage
+.env
+.env.*
+!.env.example
 data/*.db
 data/*.db-*
 data/*.csv
+data/raw/
+data/processed/
+data/incoming/
 data/market/
+logs/
 .streamlit/secrets.toml

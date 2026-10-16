@@ -1,5 +1,7 @@
 # Phase 1 setup record — 16 October 2026
 
+Historical setup record under the earlier dependency list. See [the revised plan audit](REVISED_PLAN_AUDIT.md) for current phase status and Angel One setup additions.
+
 ## Scope completed
 
 - Continued in the existing `Project-Russell_Investment-Portfolio_Risk_Monitor` workspace rather than creating a nested `PortfolioPulse` folder.
