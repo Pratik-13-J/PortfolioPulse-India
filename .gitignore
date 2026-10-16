@@ -8,4 +8,5 @@ __pycache__/
 data/*.db
 data/*.db-*
 data/*.csv
+data/market/
 .streamlit/secrets.toml

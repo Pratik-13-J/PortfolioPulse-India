@@ -2,7 +2,7 @@
 
 ## Status and working method
 
-**Phases 0 and 1 complete; Phase 2 offline demo path complete:** the scaffold, environment and Streamlit startup were verified, then a fictional India-themed portfolio and checked-in price CSV were added with data validation. The requested dummy data does not represent a live Indian market feed. **Phases 3–8 are not signed off.** The presence of a module or screen in the starter code does not count as financial verification. We will finish each phase, check its gate, fix findings, and then move on.
+**Phases 0–2 complete for the local build:** the scaffold, environment and Streamlit startup were verified; a fictional India-themed portfolio was added for the offline dashboard; and a separate real-ticker sample gained a tested yfinance adjusted-price download and exact-match local CSV fallback. **Phases 3–8 are not signed off.** The dashboard still uses the fictional portfolio until SQL and UI integration are reviewed. The presence of a module or screen in the starter code does not count as financial verification.
 
 **Confirmed portfolio model:** INR-denominated Indian assets, buy-and-hold holdings. Quantities stay fixed over the analysis window, so market weights drift; scenario impacts use the latest observed weights. Target weights are a comparison for drift alerts. The benchmark remains outside the portfolio.
 
@@ -21,7 +21,7 @@ Use Nifty benchmarks and Indian instrument examples. Do not imply that a Nifty i
 ## What the MVP will implement
 
 1. **Portfolio setup:** edit quantities and target weights for a seeded portfolio of six fictional Indian sector stocks, a gold ETF and a government bond ETF. The model is INR-denominated. Adding arbitrary instruments and fund schemes is a follow-on; the current CSV import accepts the seeded symbols.
-2. **Historical data workflow:** import a CSV with `symbol,date,close_value`; generate deterministic synthetic sample series so the demo works offline. Show source and observation coverage, and align returns on common dates. Keep the repository interface replaceable for later licensed feeds.
+2. **Historical data workflow:** import a CSV with `symbol,date,close_value`; generate deterministic fictional series so the demo works offline; and download auto-adjusted daily values for a separate listed Indian sample. Show source and observation coverage, and align returns on common dates. Keep the repository interface replaceable for later licensed feeds.
 3. **Data quality controls:** parse dates and numeric fields; reject duplicate instrument/date rows and invalid prices; show coverage and align on common dates; do not silently forward-fill or mix incompatible calendars.
 4. **Performance and risk engine:** calculate daily portfolio returns, cumulative return, annualized return and volatility, Sharpe ratio with a disclosed configurable risk-free assumption, maximum drawdown, 95% or 99% historical VaR and expected shortfall, 63-observation rolling volatility, benchmark beta, and correlation. Show the selected window and method in the interface.
 5. **Exposure and alerts:** show actual versus target instrument allocation, drift, concentration (including HHI), and correlation. Users can adjust drift and concentration alert thresholds; alerts are explainable and are not personalized recommendations.
@@ -39,6 +39,8 @@ portfoliopulse/
   config.py                    # paths and shared assumptions
   demo.py                      # fictional instruments and deterministic generator
   data.py                      # CSV validation, alignment and fallback
+  market_data.py               # yfinance adjusted download and verified local cache
+  real_portfolio.py            # separate listed Indian sample universe
   bootstrap.py                 # idempotent local demo setup
   database.py                  # SQLite repository; strengthened in P3
   schema.sql                   # normalized database tables
@@ -47,7 +49,9 @@ portfoliopulse/
   briefing.py                  # deterministic explanation; reviewed in P6
 scripts/seed_demo.py           # local demo database initialization
 scripts/generate_demo_csv.py   # reproducible CSV generator
+scripts/refresh_market_data.py # live download or explicit offline reload
 data/demo/prices.csv           # checked-in offline synthetic price fallback
+data/market/                  # ignored local real-price cache and outputs
 tests/                         # meaningful calculation and SQL checks in P2–P7
 docs/                          # phase reviews and methodology notes
 ```
@@ -70,7 +74,7 @@ Python should own the transparent financial calculations. Align return series on
 
 ## India-specific data and product decisions
 
-- Start with **Nifty 50 TRI or another suitable Nifty total-return series** as a benchmark, plus sample Indian equity/ETF prices and mutual-fund NAV observations. Make benchmark selection explicit.
+- The current real sample uses `^NSEI`, the Nifty 50 **price index**, as an explicit benchmark. A Nifty total-return series is a later enhancement for dividend-aware comparison. The listed sample contains Indian stocks and ETFs; mutual-fund NAV import remains a follow-on.
 - Prefer user-supplied or official downloadable historical data for the demonstrator. Nifty Indices offers historical and total-return index data; AMFI offers NAV and NAV-history access. NSE lists EOD and historical market-data products and has a data-use policy, so confirm terms before automated, redistributed, or commercial use.
 - Keep provider code replaceable. Yahoo Finance may be useful for a quick research prototype, but it is not the app's authoritative source and its availability/coverage must not be assumed.
 - Handle Indian market holidays, different NAV/price calendars, symbol changes, corporate actions, stale observations, and INR display. Never compare raw price levels across securities.
@@ -82,7 +86,7 @@ Python should own the transparent financial calculations. Align return series on
 | --- | --- | --- |
 | **0 — Review and structure** | Audit the inherited scaffold, align the scope to Indian assets, organize files and record risks. | File layout and imports are coherent; open issues and decisions are recorded. |
 | **1 — Environment and configuration** | Create a reproducible Python environment, finalize dependencies and Windows setup instructions. | Fresh setup imports the package and starts the application without missing modules. |
-| **2 — Indian demo data and offline CSV** | Seed fictional Indian stocks across sectors, gold, debt and a separate benchmark; validate CSV observations and common dates. Real-price provider selection is deferred under the current dummy-portfolio scope. | The CSV is reproducible and clearly synthetic; dates, source, duplicates, prices, missingness and overlap are checked. |
+| **2 — Historical market data** | Keep the fictional offline demo separate; download auto-adjusted daily prices for a listed Indian sample with yfinance; validate and cache the real observations locally. | MultiIndex, failed symbols, dates, source, duplicates, invalid prices, holidays, missingness, exact-match fallback and daily returns are checked without fabricated points. |
 | **3 — SQL and portfolio setup** | Review the schema, portfolio identity, holdings/targets, idempotent imports and saved analysis results. | Transactions, constraints, date-filtered retrieval and invalid-weight handling work on a fresh database. |
 | **4 — Portfolio analytics** | Validate buy-and-hold valuation, returns, annualization, Sharpe, drawdown, historical VaR/ES, correlations and volatility contribution. | Small hand-calculated examples match Python output; methods and edge cases are documented. |
 | **5 — Scenarios and alerts** | Add shocks per asset, contribution reconciliation, allocation drift and concentration thresholds. | Scenario components sum to total impact and invalid inputs are rejected. |
