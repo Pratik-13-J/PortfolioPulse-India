@@ -20,7 +20,7 @@ This audit covers the project files in this repository, its local SQLite dataset
 | Tests and setup | Several tests require `.tmp` to exist; the README's installation steps create it. | Kept the documented setup. The test command alone is not a fresh-checkout setup command. |
 | Documentation | Setup, data provenance, methodology, limitations, and phase notes are present. README screenshots are still placeholders. | Capture reviewed, sanitized screenshots before public presentation. |
 | Structure | `app.py` (390 lines) and `database.py` (748 lines) are large, but the calculation modules are separate and tested. | Split them only with focused tests for the extracted behavior; no broad refactor was needed for the verified fix. |
-| GitHub | This local Git repository has no configured remote. The copied working tree includes substantial pre-existing uncommitted work. | No push or pull request is possible until a remote is configured. Keep this audit's changes separate from the pre-existing work when committing. |
+| GitHub | The project is published to the private `Pratik-13-J/PortfolioPulse-India` repository on `main`. The account's primary email is verified and private, so the copied history uses its account-linked no-reply author address. | Keep the repository private for review; the original checkout remains separate. |
 
 ## Remaining external checks
 
