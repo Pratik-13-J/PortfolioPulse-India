@@ -136,6 +136,45 @@ def save_scenario(name: str, as_of: str, impact: float, impact_pct: float, shock
                     (portfolio_id, name, as_of, impact, impact_pct, json.dumps(shocks), json.dumps(contributions)))
 
 
+def save_dataset_scenario(
+    *, dataset_id: int, analysis_id: int, as_of_date: str, name: str, scenario_type: str,
+    portfolio_value_inr: float, impact_inr: float, impact_pct: float,
+    settings: Mapping[str, Any], alerts: Mapping[str, Any], contributions: pd.DataFrame,
+    path: Path = DB_PATH,
+) -> int:
+    """Atomically persist a hypothetical scenario and per-holding attribution."""
+    if not math.isclose(float(contributions["impact_inr"].sum()), float(impact_inr), rel_tol=1e-10, abs_tol=1e-7):
+        raise ValueError("Scenario contributions must reconcile before saving.")
+    settings_json = json.dumps(settings, ensure_ascii=False, allow_nan=False, sort_keys=True)
+    alerts_json = json.dumps(alerts, ensure_ascii=False, allow_nan=False, sort_keys=True)
+    rows = []
+    for symbol, row in contributions.iterrows():
+        rows.append((str(symbol), float(row["holding_value_inr"]), float(row["shock"]),
+                     float(row["impact_inr"]), float(row["portfolio_impact_pct"])))
+    with session(path) as con:
+        lineage = con.execute(
+            """SELECT d.portfolio_id AS dataset_portfolio_id, a.dataset_id, a.portfolio_id AS analysis_portfolio_id FROM candle_datasets d
+               JOIN analysis_metadata a ON a.analysis_id=? WHERE d.dataset_id=?""",
+            (analysis_id, dataset_id),
+        ).fetchone()
+        if (lineage is None or int(lineage["dataset_id"]) != dataset_id
+                or int(lineage["dataset_portfolio_id"]) != int(lineage["analysis_portfolio_id"])):
+            raise ValueError("Scenario dataset and Phase 4 analysis lineage do not match.")
+        cursor = con.execute(
+            """INSERT INTO scenario_runs(dataset_id,analysis_id,as_of_date,scenario_name,scenario_type,
+                   hypothetical,portfolio_value_inr,impact_inr,impact_pct,settings_json,alerts_json)
+               VALUES(?,?,?,?,?,1,?,?,?,?,?)""",
+            (dataset_id, analysis_id, as_of_date, name, scenario_type, float(portfolio_value_inr),
+             float(impact_inr), float(impact_pct), settings_json, alerts_json),
+        )
+        run_id = int(cursor.lastrowid)
+        con.executemany(
+            """INSERT INTO scenario_contributions(scenario_run_id,symbol,holding_value_inr,shock,impact_inr,portfolio_impact_pct)
+               VALUES(?,?,?,?,?,?)""", [(run_id, *row) for row in rows],
+        )
+        return run_id
+
+
 def seed_instruments(path: Path = DB_PATH) -> None:
     rows = [(item.symbol, item.name, item.asset_class, item.sector, DEMO_SOURCE) for item in DEMO_INSTRUMENTS]
     with session(path) as con:
@@ -555,6 +594,19 @@ def get_dataset_info(dataset_id: int, *, path: Path = DB_PATH) -> dict[str, Any]
     result["metadata"] = json.loads(result.pop("metadata_json"))
     result["portfolio_snapshot"] = [dict(item) for item in snapshot]
     return result
+
+
+def list_candle_datasets(path: Path = DB_PATH) -> list[dict[str, Any]]:
+    """List stored real-market datasets for explicit dashboard selection."""
+    with session(path) as con:
+        rows = con.execute(
+            """SELECT d.dataset_id, p.name AS portfolio_name, d.source_name,
+                      d.price_basis, d.window_start, d.window_end_exclusive,
+                      d.candle_count, d.imported_at_utc
+               FROM candle_datasets d JOIN portfolios p USING(portfolio_id)
+               ORDER BY d.imported_at_utc DESC, d.dataset_id DESC"""
+        ).fetchall()
+    return [dict(row) for row in rows]
 
 
 def get_candle_dataset(dataset_id: int, *, path: Path = DB_PATH) -> pd.DataFrame:

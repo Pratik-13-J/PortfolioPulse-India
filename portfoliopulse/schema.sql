@@ -67,6 +67,33 @@ CREATE TABLE IF NOT EXISTS scenarios (
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Source-linked hypothetical stress runs for explicitly selected real datasets.
+CREATE TABLE IF NOT EXISTS scenario_runs (
+    scenario_run_id INTEGER PRIMARY KEY,
+    dataset_id INTEGER NOT NULL REFERENCES candle_datasets(dataset_id),
+    analysis_id INTEGER NOT NULL REFERENCES analysis_metadata(analysis_id),
+    as_of_date TEXT NOT NULL,
+    scenario_name TEXT NOT NULL,
+    scenario_type TEXT NOT NULL,
+    hypothetical INTEGER NOT NULL DEFAULT 1 CHECK(hypothetical = 1),
+    portfolio_value_inr REAL NOT NULL CHECK(portfolio_value_inr > 0),
+    impact_inr REAL NOT NULL,
+    impact_pct REAL NOT NULL,
+    settings_json TEXT NOT NULL,
+    alerts_json TEXT NOT NULL,
+    created_at_utc TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS scenario_contributions (
+    scenario_run_id INTEGER NOT NULL REFERENCES scenario_runs(scenario_run_id) ON DELETE CASCADE,
+    symbol TEXT NOT NULL,
+    holding_value_inr REAL NOT NULL CHECK(holding_value_inr >= 0),
+    shock REAL NOT NULL CHECK(shock >= -1),
+    impact_inr REAL NOT NULL,
+    portfolio_impact_pct REAL NOT NULL,
+    PRIMARY KEY(scenario_run_id, symbol)
+);
+
 -- The original instruments, market_observations, and analytics tables above
 -- remain available for the fictional dashboard. Real daily candles live in
 -- explicitly selected datasets, so two providers can never overwrite each

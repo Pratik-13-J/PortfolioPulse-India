@@ -1,188 +1,390 @@
+"""Streamlit analyst dashboard for source-labelled PortfolioPulse datasets."""
+
 from __future__ import annotations
 
-from datetime import date
+import sqlite3
+import math
+from pathlib import Path
 
 import pandas as pd
 import plotly.express as px
 import streamlit as st
 
-from portfoliopulse.analytics import concentration, portfolio_values, risk_metrics
-from portfoliopulse.bootstrap import ensure_demo_data
-from portfoliopulse.briefing import briefing
-from portfoliopulse.config import BENCHMARK_SYMBOL, DB_PATH, TRADING_DAYS_PER_YEAR
-from portfoliopulse.data import PriceDataError, align_prices, load_price_csv
-from portfoliopulse.database import get_holdings, get_prices, load_observations, save_holdings, save_run, save_scenario
-from portfoliopulse.scenarios import scenario_impact
+from portfoliopulse.attribution import allocation_alerts, scenario_attribution
+from portfoliopulse.briefing import portfolio_analyst_briefing
+from portfoliopulse.config import DB_PATH, REAL_PORTFOLIO_NAME
+from portfoliopulse.database import get_dataset_info, initialize, list_candle_datasets
+from portfoliopulse.portfolio_analysis import Phase4Analysis, analyze_saved_dataset
+from portfoliopulse.scenarios import scenario_shocks
 
-st.set_page_config(page_title="PortfolioPulse", page_icon="📊", layout="wide")
-ensure_demo_data()
 
-st.title("PortfolioPulse")
-st.caption("India-first portfolio risk monitor · Python analytics · SQL-backed · Illustrative demo data")
-st.warning("The bundled price paths are synthetic and for demonstration only. This tool is educational; it does not provide investment advice or trade recommendations.")
+st.set_page_config(page_title="PortfolioPulse India | Risk Monitor", page_icon="📈", layout="wide")
 
-holdings = get_holdings()
-symbols = holdings["symbol"].tolist()
-all_prices = get_prices(symbols + [BENCHMARK_SYMBOL])
-if all_prices.empty:
-    st.error("No observations are available. Check the local database or import file.")
+
+@st.cache_data(show_spinner="Loading and validating the saved market dataset…")
+def _load_analysis(dataset_id: int, annual_rf: float, confidence: float, database_path: str) -> Phase4Analysis:
+    return analyze_saved_dataset(
+        dataset_id,
+        annual_risk_free_rate=annual_rf,
+        confidence=confidence,
+        db_path=Path(database_path),
+    )
+
+
+def _format_pct(value: float | None, places: int = 2) -> str:
+    return "Not available" if value is None or pd.isna(value) else f"{value:.{places}%}"
+
+
+def _format_ratio(value: float | None) -> str:
+    return "Not available" if value is None or pd.isna(value) else f"{value:.2f}"
+
+
+def _drawdown_chart(analysis: Phase4Analysis) -> pd.DataFrame:
+    matched = analysis.returns.cumulative_comparison_returns.dropna(how="any")
+    wealth = matched.add(1.0)
+    return wealth.div(wealth.cummax()).sub(1.0).rename(
+        columns={"portfolio": "Portfolio", analysis.benchmark_symbol: "NIFTY 50"}
+    )
+
+
+def _dataset_label(item: dict[str, object]) -> str:
+    return (
+        f"Dataset {item['dataset_id']} · {item['source_name']} · "
+        f"{item['window_start']} to {item['window_end_exclusive']} (exclusive)"
+    )
+
+
+try:
+    initialize(DB_PATH)
+    datasets = [
+        item for item in list_candle_datasets(DB_PATH)
+        if item["portfolio_name"] == REAL_PORTFOLIO_NAME
+    ]
+except Exception as exc:
+    st.title("PortfolioPulse India")
+    st.error(f"Could not open the local market-data database: {exc}")
+    st.stop()
+
+st.title("PortfolioPulse India")
+st.caption("Portfolio risk monitor · INR · Buy-and-hold quantities · NIFTY 50 comparison")
+
+if not datasets:
+    st.info("No real Indian market dataset is stored yet. Complete Phase 2/3 ingestion, then restart or reload this page.")
+    st.code(".\\.venv\\Scripts\\python.exe -m scripts.ingest_phase3 --help", language="powershell")
+    st.caption("The fictional demonstration portfolio is kept separate and is not shown as real market performance here.")
     st.stop()
 
 with st.sidebar:
-    st.header("Portfolio inputs")
-    uploaded = st.file_uploader("Import observations (CSV)", type=["csv"], help="Required columns: symbol, date, close_value. Symbols must exist in the demo instrument list.")
-    if uploaded is not None and st.button("Import CSV observations"):
-        try:
-            imported = load_price_csv(uploaded)
-            rows_added = load_observations(imported, source=f"uploaded:{uploaded.name}")
-            st.success(f"Imported or updated {rows_added:,} observations.")
-            st.rerun()
-        except (ValueError, KeyError) as exc:
-            st.error(f"Import not applied: {exc}")
-    st.caption("Adjust units held. Current weights are calculated from the latest available values.")
-    quantities: dict[str, float] = {}
-    target_weights_input: dict[str, float] = {}
-    for row in holdings.itertuples(index=False):
-        quantities[row.symbol] = st.number_input(f"{row.symbol} units", min_value=0.0, value=float(row.quantity), step=1.0, key=f"qty_{row.symbol}")
-        target_weights_input[row.symbol] = st.number_input(f"{row.symbol} target weight (%)", min_value=0, max_value=100, value=int(round(row.target_weight * 100)), step=5, key=f"target_{row.symbol}") / 100
-    st.caption(f"Target total: {sum(target_weights_input.values()):.0%} (must equal 100% to save)")
-    if st.button("Save holdings", use_container_width=True):
-        try:
-            save_holdings(quantities, target_weights_input)
-            st.rerun()
-        except ValueError as exc:
-            st.error(str(exc))
-    drift_threshold = st.slider("Drift alert threshold (percentage points)", 1, 20, 5) / 100
-    concentration_threshold = st.slider("Concentration alert threshold", 20, 100, 40) / 100
+    st.header("Analysis settings")
+    selected_dataset = st.selectbox(
+        "Saved Indian dataset", datasets, format_func=_dataset_label,
+        index=0, key="selected_dataset",
+    )
+    dataset_id = int(selected_dataset["dataset_id"])
+    annual_rf = st.number_input(
+        "Annual INR risk-free assumption (%)", min_value=-99.0, max_value=100.0,
+        value=6.0, step=0.25, help="Effective annual assumption used for Sharpe ratio; not fetched from RBI.",
+    ) / 100.0
+    confidence = st.selectbox("Historical one-day VaR confidence", [0.95, 0.99], index=0, format_func=lambda x: f"{x:.0%}")
+    drift_threshold = st.slider("Weight drift alert threshold (percentage points)", 1, 20, 5) / 100.0
+    single_name_limit = st.slider("Single holding concentration threshold", 10, 100, 40) / 100.0
+    hhi_limit = st.slider("HHI concentration threshold", 0.05, 1.0, 0.25, step=0.05)
+    if st.button("Reload saved data", width="stretch"):
+        _load_analysis.clear()
+        st.rerun()
 
-    st.divider()
-    min_date = all_prices["date"].min().date()
-    max_date = all_prices["date"].max().date()
-    selected = st.date_input("Analysis window", value=(max(min_date, date(max_date.year - 2, max_date.month, min(max_date.day, 28))), max_date), min_value=min_date, max_value=max_date)
-    confidence = st.selectbox("Historical VaR confidence", [0.95, 0.99], format_func=lambda x: f"{x:.0%}")
-    annual_rf = st.number_input("Annual risk-free assumption (%)", min_value=0.0, max_value=20.0, value=0.0, step=0.25) / 100
-
-    st.divider()
-    st.subheader("Illustrative shock")
-    equity_shock = st.slider("Equity move", -40, 20, -10, format="%d%%") / 100
-    debt_shock = st.slider("Debt move", -20, 10, -3, format="%d%%") / 100
-    gold_shock = st.slider("Gold move", -20, 20, 5, format="%d%%") / 100
-
-if isinstance(selected, (tuple, list)) and len(selected) == 2:
-    start_date, end_date = selected
-else:
-    start_date, end_date = min_date, max_date
-if start_date >= end_date:
-    st.error("Choose a start date before the end date.")
-    st.stop()
-
-price_window = get_prices(symbols + [BENCHMARK_SYMBOL], start_date.isoformat(), end_date.isoformat())
-holdings = get_holdings()
 try:
-    aligned_window = align_prices(price_window, symbols + [BENCHMARK_SYMBOL], source="local_database")
-    if aligned_window.dropped_price_dates:
-        st.error("This window has missing instrument or benchmark prices. Choose a complete window or import the missing observations before calculating risk.")
-        st.dataframe(aligned_window.coverage, hide_index=True)
-        st.stop()
-    value_matrix, portfolio_value = portfolio_values(price_window[price_window["symbol"].isin(symbols)], holdings)
-    returns, metrics = risk_metrics(portfolio_value, confidence=confidence, annual_rf=annual_rf)
-except (PriceDataError, ValueError, KeyError) as exc:
-    st.error(str(exc))
+    analysis = _load_analysis(dataset_id, float(annual_rf), float(confidence), str(DB_PATH))
+except (ValueError, OSError, RuntimeError, sqlite3.Error) as exc:
+    st.error(f"This dataset could not be analyzed: {exc}")
     st.stop()
 
-latest_values = value_matrix.iloc[-1]
-latest_total = float(latest_values.sum())
-weights = latest_values / latest_total
-target_weights = holdings.set_index("symbol")["target_weight"].reindex(weights.index).fillna(0)
-allocation = pd.DataFrame({"symbol": weights.index, "Current weight": weights.values, "Target weight": target_weights.values})
-classes = holdings.set_index("symbol")["asset_class"]
-hhi = concentration(weights)
-shock_by_class = {"Equity": equity_shock, "Debt": debt_shock, "Gold": gold_shock}
-impact, contributions = scenario_impact(latest_values, shock_by_class, classes)
-benchmark_series = price_window[price_window["symbol"] == BENCHMARK_SYMBOL].set_index("date")["close_value"]
-benchmark_returns = benchmark_series.pct_change().dropna()
-beta_dates = returns.index.intersection(benchmark_returns.index)
-benchmark_beta = float(returns.reindex(beta_dates).cov(benchmark_returns.reindex(beta_dates)) / benchmark_returns.reindex(beta_dates).var()) if len(beta_dates) > 1 and benchmark_returns.reindex(beta_dates).var() else float("nan")
-drift_alerts = allocation.loc[(allocation["Current weight"] - allocation["Target weight"]).abs() >= drift_threshold]
-concentration_alerts = allocation.loc[allocation["Current weight"] >= concentration_threshold]
+try:
+    dataset_info = get_dataset_info(dataset_id, path=DB_PATH)
+    snapshot = [row for row in dataset_info["portfolio_snapshot"] if not row["is_benchmark"]]
+except (ValueError, OSError, sqlite3.Error) as exc:
+    st.error(f"Could not load the saved holding snapshot: {exc}")
+    st.stop()
 
-cards = st.columns(5)
-cards[0].metric("Portfolio value", f"₹{latest_total:,.0f}")
-cards[1].metric("Selected-window return", f"{metrics['total_return']:.1%}")
-cards[2].metric("Annualized volatility", f"{metrics['annual_volatility']:.1%}")
-cards[3].metric(f"Historical {confidence:.0%} 1-day VaR", f"{metrics['var']:.2%}")
-cards[4].metric("Maximum drawdown", f"{metrics['max_drawdown']:.1%}")
+holding_symbols = [str(row["symbol"]) for row in snapshot]
+as_of = pd.Timestamp(analysis.risk_weight_date)
+holding_values = analysis.returns.holding_values_inr.loc[as_of, holding_symbols]
+actual_weights = analysis.returns.market_weights.loc[as_of, holding_symbols].astype(float)
+portfolio_value = float(holding_values.sum())
+target_defaults = {str(row["symbol"]): float(row["target_weight"]) for row in snapshot}
 
-overview, exposures, scenarios, methodology = st.tabs(["Overview", "Exposure & diversification", "Scenarios & briefing", "Methodology & data"])
-with overview:
-    if not drift_alerts.empty:
-        st.warning(f"Allocation drift alert ({drift_threshold:.0%} threshold): " + ", ".join(f"{r.symbol} {r['Current weight']-r['Target weight']:+.1%}" for _, r in drift_alerts.iterrows()))
-    if not concentration_alerts.empty:
-        st.warning(f"Concentration alert ({concentration_threshold:.0%} threshold): " + ", ".join(f"{r.symbol} {r['Current weight']:.1%}" for _, r in concentration_alerts.iterrows()))
-    left, right = st.columns([1.6, 1])
+st.caption(
+    f"{analysis.portfolio_name} · {analysis.quality.start} to "
+    f"{(analysis.quality.aligned_prices.index[-1]).strftime('%Y-%m-%d')} · "
+    f"valuation date {analysis.risk_weight_date} · analysis {analysis.analysis_id}"
+)
+
+metrics = analysis.metrics
+kpi_columns = st.columns(5)
+kpi_columns[0].metric("Annualized price return", _format_pct(metrics["portfolio_annualized_price_return"]))
+kpi_columns[1].metric("Annualized volatility", _format_pct(metrics["portfolio_annualized_volatility"]))
+kpi_columns[2].metric("Sharpe ratio", _format_ratio(metrics["portfolio_sharpe"]))
+kpi_columns[3].metric("Maximum drawdown", _format_pct(metrics["portfolio_max_drawdown"]))
+kpi_columns[4].metric(f"Historical {confidence:.0%} 1-day VaR", _format_pct(metrics["portfolio_var_1d"]))
+
+performance_tab, allocation_tab, risk_tab, scenario_tab, data_tab = st.tabs(
+    ["Performance", "Portfolio & targets", "Risk & diversification", "Stress tests", "Data & methodology"]
+)
+
+with performance_tab:
+    matched = analysis.returns.cumulative_comparison_returns.dropna(how="any")
+    if matched.empty:
+        st.warning("There are no dates shared by every holding and NIFTY 50 in this dataset.")
+    else:
+        indexed = matched.add(1.0).mul(100.0).rename(
+            columns={"portfolio": "Portfolio", analysis.benchmark_symbol: "NIFTY 50"}
+        )
+        indexed.index.name = "Date"
+        chart = px.line(
+            indexed, x=indexed.index, y=indexed.columns,
+            labels={"value": "Growth of INR 100", "variable": "Series", "x": "Date"},
+            title="Portfolio and NIFTY 50 · shared observed dates",
+        )
+        chart.update_layout(hovermode="x unified", legend_title_text="")
+        st.plotly_chart(chart, width="stretch")
+        st.caption("Both series start at INR 100 on the first complete shared date. Gaps and missing observations are not filled.")
+
+    left, right = st.columns(2)
     with left:
-        indexed = (portfolio_value / portfolio_value.iloc[0] * 100).rename("Portfolio")
-        benchmark = price_window[price_window["symbol"] == BENCHMARK_SYMBOL].set_index("date")["close_value"]
-        common_dates = indexed.index.intersection(benchmark.index)
-        chart = pd.DataFrame({"Portfolio": indexed.reindex(common_dates), "NIFTY 50 demo benchmark": benchmark.reindex(common_dates) / benchmark.reindex(common_dates).iloc[0] * 100})
-        st.plotly_chart(px.line(chart, labels={"value": "Growth of ₹100 (index)", "date": "Date", "variable": "Series"}, title="Portfolio and benchmark path"), use_container_width=True)
-        export = pd.DataFrame({"portfolio_value_inr": portfolio_value, "daily_return": portfolio_value.pct_change()})
-        st.download_button("Download portfolio history (CSV)", export.to_csv(index_label="date"), file_name="portfolio_history.csv", mime="text/csv")
+        st.metric("Portfolio cumulative price return", _format_pct(metrics["portfolio_cumulative_price_return"]))
+        st.metric("NIFTY 50 cumulative price return", _format_pct(metrics["benchmark_cumulative_price_return"]))
     with right:
-        drawdown = portfolio_value / portfolio_value.cummax() - 1
-        st.plotly_chart(px.area(x=drawdown.index, y=drawdown.values, labels={"x": "Date", "y": "Drawdown"}, title="Portfolio drawdown"), use_container_width=True)
-        st.metric("Annualized return", f"{metrics['annual_return']:.1%}")
-        st.metric("Sharpe ratio", f"{metrics['sharpe']:.2f}")
-        st.metric("Beta vs Nifty 50 demo benchmark", f"{benchmark_beta:.2f}" if pd.notna(benchmark_beta) else "N/A")
-        st.metric("Historical expected shortfall", f"{metrics['expected_shortfall']:.2%}")
-    rolling_vol = returns.rolling(63).std() * (TRADING_DAYS_PER_YEAR ** 0.5)
-    st.plotly_chart(px.line(x=rolling_vol.index, y=rolling_vol.values, labels={"x": "Date", "y": "Annualized volatility"}, title="Rolling 63-observation volatility"), use_container_width=True)
+        st.metric("NIFTY 50 annualized price return", _format_pct(metrics["benchmark_annualized_price_return"]))
+        st.metric("NIFTY 50 annualized volatility", _format_pct(metrics["benchmark_annualized_volatility"]))
 
-with exposures:
-    st.subheader("Indian demo holdings")
-    st.dataframe(holdings[["symbol", "name", "sector", "asset_class", "quantity", "target_weight"]], use_container_width=True, hide_index=True)
-    c1, c2 = st.columns(2)
-    with c1:
-        st.plotly_chart(px.bar(allocation.melt(id_vars="symbol", var_name="Allocation", value_name="Weight"), x="symbol", y="Weight", color="Allocation", barmode="group", title="Current vs target allocation", text_auto=".1%"), use_container_width=True)
-    with c2:
-        st.plotly_chart(px.pie(allocation, values="Current weight", names="symbol", hole=.45, title="Current portfolio weights"), use_container_width=True)
-    st.metric("Herfindahl concentration index (HHI)", f"{hhi:.3f}", help="Sum of squared instrument weights; a higher value indicates more concentration.")
-    drift = allocation.assign(Drift=allocation["Current weight"] - allocation["Target weight"])
-    st.dataframe(drift.style.format({"Current weight": "{:.1%}", "Target weight": "{:.1%}", "Drift": "{:+.1%}"}), use_container_width=True, hide_index=True)
-    asset_returns = value_matrix.pct_change().dropna()
-    st.plotly_chart(px.imshow(asset_returns.corr(), text_auto=".2f", color_continuous_scale="RdBu", zmin=-1, zmax=1, title="Historical return correlation"), use_container_width=True)
+    drawdowns = _drawdown_chart(analysis)
+    drawdown_plot = px.line(
+        drawdowns, x=drawdowns.index, y=drawdowns.columns,
+        labels={"value": "Drawdown", "variable": "Series", "x": "Date"},
+        title="Observed drawdown on shared dates",
+    )
+    drawdown_plot.update_yaxes(tickformat=".0%")
+    drawdown_plot.update_layout(hovermode="x unified", legend_title_text="")
+    st.plotly_chart(drawdown_plot, width="stretch")
 
-with scenarios:
-    st.subheader("What-if impact at current holdings")
-    st.caption("Shocks are user-defined illustrations applied to current market values; they are not forecasts.")
-    st.metric("Estimated scenario change", f"₹{impact:,.0f}", delta=f"{impact / latest_total:.1%} of portfolio", delta_color="inverse")
-    loss_table = contributions.rename("Estimated impact (₹)").to_frame().sort_values("Estimated impact (₹)")
-    st.dataframe(loss_table.style.format({"Estimated impact (₹)": "₹{:,.0f}"}), use_container_width=True)
-    if st.button("Save scenario snapshot"):
-        save_scenario("Custom asset-class shock", str(portfolio_value.index[-1].date()), impact, impact / latest_total, shock_by_class, contributions.to_dict())
-        st.success("Scenario saved to the local SQL database.")
-    st.subheader("Analyst briefing")
-    briefing_text = briefing(metrics, weights, hhi, impact, latest_total)
-    st.markdown(briefing_text)
-    st.download_button("Download briefing", briefing_text, file_name="portfoliopulse_briefing.txt")
-    if st.button("Save risk snapshot"):
-        run_id = save_run(1, str(returns.index[0].date()), str(returns.index[-1].date()), confidence, annual_rf, metrics)
-        st.success(f"Risk snapshot saved to SQLite (run {run_id}).")
+with allocation_tab:
+    st.subheader("Holdings and target allocation")
+    st.caption("Fixed quantities are taken from the saved dataset. Edited targets apply to this dashboard session only; they do not change the stored portfolio snapshot.")
+    holdings_table = pd.DataFrame({
+        "Symbol": holding_symbols,
+        "Sector": [str(row["sector"]) for row in snapshot],
+        "Quantity (fixed)": [float(row["quantity"]) for row in snapshot],
+        "Market value (INR)": [float(holding_values[symbol]) for symbol in holding_symbols],
+        "Current weight (%)": [float(actual_weights[symbol]) * 100 for symbol in holding_symbols],
+        "Target weight (%)": [target_defaults[symbol] * 100 for symbol in holding_symbols],
+    })
+    edited = st.data_editor(
+        holdings_table,
+        hide_index=True,
+        width="stretch",
+        key=f"target_weights_{dataset_id}",
+        disabled=["Symbol", "Sector", "Quantity (fixed)", "Market value (INR)", "Current weight (%)"],
+        column_config={
+            "Market value (INR)": st.column_config.NumberColumn(format="INR %.2f"),
+            "Current weight (%)": st.column_config.NumberColumn(format="%.2f%%"),
+            "Target weight (%)": st.column_config.NumberColumn(min_value=0, max_value=100, step=0.5, format="%.1f%%"),
+        },
+    )
+    edited_values = pd.to_numeric(edited["Target weight (%)"], errors="coerce")
+    entries_valid = bool(edited_values.notna().all() and edited_values.between(0, 100).all())
+    edited_targets = (
+        {str(symbol): float(value) / 100.0 for symbol, value in zip(edited["Symbol"], edited_values)}
+        if entries_valid else {}
+    )
+    target_total = sum(edited_targets.values()) if entries_valid else float("nan")
+    targets_valid = entries_valid and math.isclose(target_total, 1.0, rel_tol=0, abs_tol=1e-8)
+    total_col, value_col = st.columns(2)
+    total_col.metric("Target weights total", f"{target_total:.1%}" if entries_valid else "Invalid", delta="Valid" if targets_valid else "Check targets")
+    value_col.metric("Current portfolio value", f"INR {portfolio_value:,.2f}")
+    if not targets_valid:
+        st.error("Enter numeric target weights from 0% to 100% that sum to exactly 100%.")
+        target_weights = target_defaults
+    else:
+        target_weights = edited_targets
 
-with methodology:
-    coverage = all_prices.groupby("symbol").agg(observations=("date", "count"), first_date=("date", "min"), latest_date=("date", "max"), source=("source", "last")).reset_index()
-    st.subheader("Observation coverage")
-    st.dataframe(coverage, use_container_width=True, hide_index=True)
-    st.markdown("""
-    **Data status:** synthetic demo series loaded from a bundled CSV. They are not real Nifty, stock, ETF, or fund observations. The weekday date grid is not an NSE trading calendar.
+    try:
+        concentration_result = allocation_alerts(
+            {symbol: float(actual_weights[symbol]) for symbol in holding_symbols},
+            target_weights if targets_valid else target_defaults,
+            drift_threshold=drift_threshold,
+            single_name_limit=single_name_limit,
+            hhi_limit=hhi_limit,
+        )
+        alert_result = concentration_result
+    except ValueError as exc:
+        st.error(f"Allocation checks unavailable: {exc}")
+        alert_result = None
 
-    **Portfolio construction:** fixed unit holdings valued at each date's close/NAV. The portfolio is not automatically rebalanced. Dates are aligned across selected holdings using common observations.
+    allocation_frame = pd.DataFrame({
+        "Symbol": holding_symbols,
+        "Current weight": [float(actual_weights[symbol]) for symbol in holding_symbols],
+        "Target weight": [target_weights[symbol] for symbol in holding_symbols],
+    }).melt(id_vars="Symbol", var_name="Allocation", value_name="Weight")
+    allocation_plot = px.bar(
+        allocation_frame, x="Symbol", y="Weight", color="Allocation", barmode="group",
+        title="Current market weights and target weights",
+    )
+    allocation_plot.update_yaxes(tickformat=".0%")
+    st.plotly_chart(allocation_plot, width="stretch")
+    if alert_result is not None:
+        drift_rows = [
+            {"Symbol": symbol, "Current": item["actual_weight"], "Target": item["target_weight"], "Drift": item["drift"]}
+            for symbol, item in alert_result["drifts"].items()
+        ]
+        drift_alerts = [row for row in drift_rows if abs(row["Drift"]) > drift_threshold]
+        if not targets_valid:
+            st.caption("Drift alerts below use the saved target weights until the edited weights total 100%.")
+        elif drift_alerts:
+            st.warning("Weight drift alerts: " + ", ".join(f"{row['Symbol']} {row['Drift']:+.1%}" for row in drift_alerts))
+        else:
+            st.success("No holding exceeds the selected weight-drift threshold.")
 
-    **Annualization:** 252 trading observations per year. Volatility is sample standard deviation of daily returns multiplied by √252. Sharpe uses the annual risk-free assumption shown in the sidebar.
+with risk_tab:
+    left, right = st.columns([1.2, 1])
+    with left:
+        st.subheader("Asset correlation")
+        corr_symbols = [*holding_symbols, analysis.benchmark_symbol]
+        corr = analysis.correlations.reindex(index=corr_symbols, columns=corr_symbols)
+        heatmap = px.imshow(
+            corr, zmin=-1, zmax=1, color_continuous_scale="RdBu",
+            text_auto=".2f", aspect="auto", title="Daily price-return correlation",
+        )
+        st.plotly_chart(heatmap, width="stretch")
+        st.caption(f"Pearson correlation on {analysis.quality.valid_return_dates_count:,} complete paired daily returns. Constant series may show as blank.")
+    with right:
+        st.subheader("Asset risk contribution")
+        contribution = analysis.risk_contributions
+        if contribution is None:
+            st.info("Risk contributions are undefined for a zero-volatility portfolio or insufficient return history.")
+        else:
+            risk_chart_data = contribution.reset_index(names="Symbol")
+            risk_chart = px.bar(
+                risk_chart_data, x="Symbol", y="percent_contribution",
+                hover_data={"component_annual_volatility": ":.2%", "weight": ":.2%"},
+                labels={"percent_contribution": "Share of current-weight proxy volatility"},
+                title="Component contribution to current-weight proxy volatility",
+            )
+            risk_chart.update_yaxes(tickformat=".0%")
+            st.plotly_chart(risk_chart, width="stretch")
+            st.caption("These contributions use the last matched-date weights and historical asset covariance. Shares sum to 100%; this proxy can differ from realized buy-and-hold volatility.")
+            st.dataframe(
+                contribution.rename(columns={
+                    "weight": "Current weight", "marginal_annual_volatility": "Marginal annual volatility",
+                    "component_annual_volatility": "Component annual volatility", "percent_contribution": "Volatility share",
+                }).style.format({
+                    "Current weight": "{:.2%}", "Marginal annual volatility": "{:.2%}",
+                    "Component annual volatility": "{:.2%}", "Volatility share": "{:.2%}",
+                }),
+                width="stretch",
+            )
+    if alert_result is not None:
+        conc = alert_result["concentration"]
+        st.metric("Portfolio HHI", f"{conc['hhi']:.3f}", delta="Alert" if conc["hhi_alert"] else "Within selected threshold", delta_color="inverse")
+        if conc["single_name_alerts"]:
+            st.warning("Single-name concentration alerts: " + ", ".join(conc["single_name_alerts"]))
 
-    **Historical VaR / expected shortfall:** empirical daily-return quantile and mean of returns in the loss tail. These depend on the sample and do not bound future losses.
+with scenario_tab:
+    st.subheader("Hypothetical one-period stress")
+    st.warning("Illustrative shocks only. These are not forecasts, investment recommendations or historically calibrated predictions.")
+    scenario_type = st.selectbox(
+        "Scenario", ["broad_market", "banking_stress", "it_correction", "individual", "sector"],
+        format_func=lambda item: {
+            "broad_market": "Broad Indian market correction",
+            "banking_stress": "Banking stress",
+            "it_correction": "IT sector correction",
+            "individual": "Individual stock shock",
+            "sector": "Custom sector shock",
+        }[item],
+    )
+    controls = st.columns(3)
+    shock_kwargs: dict[str, object] = {}
+    if scenario_type == "broad_market":
+        shock_kwargs["broad_shock"] = controls[0].slider("Broad market move", -60, 20, -10, format="%d%%") / 100.0
+    elif scenario_type in {"banking_stress", "it_correction"}:
+        shock_kwargs["stressed_shock"] = controls[0].slider("Stressed sector move", -60, 20, -20, format="%d%%") / 100.0
+        shock_kwargs["residual_shock"] = controls[1].slider("Other holdings move", -60, 20, -5, format="%d%%") / 100.0
+    elif scenario_type == "individual":
+        symbol = controls[0].selectbox("Holding", holding_symbols)
+        shock_kwargs["individual_shocks"] = {symbol: controls[1].slider("Holding move", -100, 50, -20, format="%d%%") / 100.0}
+    else:
+        sectors = sorted({str(row["sector"]) for row in snapshot})
+        sector = controls[0].selectbox("Sector", sectors)
+        shock_kwargs["sector_shocks"] = {sector: controls[1].slider("Sector move", -100, 50, -20, format="%d%%") / 100.0}
 
-    **Real-data path:** import appropriately sourced observations. Nifty Indices historical/total-return data and AMFI NAV history are candidate India-specific inputs. NSE market-data access has usage terms; confirm rights before automation or redistribution. Keep source and as-of metadata with every import.
-    """)
-    st.code("symbol,date,close_value\nDEMO_ENERGY,2026-09-29,254.21\n", language="csv")
-    st.caption(f"Local database: {DB_PATH.name} · Last observation: {all_prices['date'].max().date()} · Base currency: INR")
+    try:
+        shocks = scenario_shocks(snapshot, scenario_type, **shock_kwargs)
+        contributions, scenario_impact_inr, scenario_impact_pct = scenario_attribution(
+            {symbol: float(holding_values[symbol]) for symbol in holding_symbols}, shocks,
+        )
+        scenario_columns = st.columns(3)
+        scenario_columns[0].metric("Estimated portfolio impact", f"INR {scenario_impact_inr:,.2f}", delta=f"{scenario_impact_pct:.2%}")
+        scenario_columns[1].metric("Portfolio value before shock", f"INR {portfolio_value:,.2f}")
+        scenario_columns[2].metric("Valuation date", analysis.risk_weight_date)
+        impact_chart = px.bar(
+            contributions.reset_index(names="Symbol"), x="Symbol", y="impact_inr",
+            color="impact_inr", color_continuous_scale="RdYlGn",
+            labels={"impact_inr": "Estimated contribution (INR)"},
+            title="Holding contribution to the scenario impact",
+        )
+        impact_chart.update_layout(coloraxis_showscale=False)
+        st.plotly_chart(impact_chart, width="stretch")
+        st.dataframe(
+            contributions.rename(columns={
+                "holding_value_inr": "Current value (INR)", "shock": "Shock",
+                "impact_inr": "Impact (INR)", "portfolio_impact_pct": "Portfolio impact contribution",
+            }).style.format({
+                "Current value (INR)": "INR {:,.2f}", "Shock": "{:.2%}",
+                "Impact (INR)": "INR {:,.2f}", "Portfolio impact contribution": "{:.2%}",
+            }),
+            width="stretch",
+        )
+        if alert_result is not None:
+            briefing_text = portfolio_analyst_briefing(
+                metrics, actual_weights, float(alert_result["concentration"]["hhi"]), scenario_impact_inr,
+            )
+            st.subheader("Rule-based analyst briefing")
+            st.write(briefing_text)
+    except ValueError as exc:
+        st.error(f"Scenario could not be calculated: {exc}")
+
+with data_tab:
+    st.subheader("Source and data quality")
+    try:
+        retrieved_ist = pd.Timestamp(analysis.retrieved_at_utc).tz_convert("Asia/Kolkata")
+        retrieved_label = retrieved_ist.strftime("%d %b %Y, %H:%M IST")
+    except (TypeError, ValueError):
+        retrieved_label = "Unavailable"
+    adjustment = {
+        "unadjusted_ohlcv": "Unadjusted OHLCV · price returns only",
+        "provider_adjusted_ohlcv": "Provider-adjusted OHLCV · provider basis; not independently verified",
+    }.get(analysis.price_basis, analysis.price_basis)
+    info_cols = st.columns(4)
+    info_cols[0].metric("Data source", analysis.source_name)
+    info_cols[1].metric("Last retrieval", retrieved_label)
+    info_cols[2].metric("Price basis", adjustment)
+    info_cols[3].metric("Candle observations", f"{len(analysis.quality.candles):,}")
+    quality_cols = st.columns(4)
+    quality_cols[0].metric("Shared price dates", f"{analysis.quality.common_price_dates_count:,}")
+    quality_cols[1].metric("Valid paired daily returns", f"{analysis.quality.valid_return_dates_count:,}")
+    quality_cols[2].metric("Excluded price dates", f"{len(analysis.quality.excluded_price_dates):,}")
+    quality_cols[3].metric("Excluded return dates", f"{len(analysis.quality.excluded_return_dates):,}")
+    st.caption(
+        f"Source status: {analysis.provenance_status}. Window: {dataset_info['window_start']} through "
+        f"{dataset_info['window_end_exclusive']} (exclusive). Retrieved timestamps are displayed in India Standard Time."
+    )
+    st.dataframe(analysis.quality.coverage, hide_index=True, width="stretch")
+    st.subheader("Method and limits")
+    st.markdown(
+        """
+        - Buy and hold means fixed share quantities; market weights drift with prices.
+        - Portfolio and NIFTY returns are compared on matching observed dates. Missing observations are not filled.
+        - Headline performance uses close-to-close **price returns**. Unadjusted closes do not include dividends and may reflect corporate actions.
+        - Annualization uses 252 trading observations. The annual risk-free input is an analyst assumption.
+        - Historical VaR is a past-sample estimate, not a maximum-loss guarantee. Stress scenarios are hypothetical one-period shocks.
+        """
+    )

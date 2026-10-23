@@ -1,5 +1,7 @@
 # Revised plan audit — 16 October 2026
 
+This document preserves phase-by-phase findings. The later [final audit](FINAL_AUDIT.md) supersedes its earlier browser and independent-source verification status.
+
 ## Scope change
 
 The newly supplied **PortfolioPulse India: Revised 2-Day Project Plan** supersedes the former yfinance-first Phase 2 gate. Its initial deliverable is an Indian **equity** portfolio compared with NIFTY 50, with Angel One SmartAPI daily historical candles as the primary feed and selected NSE reports as an independent reference. The plan names RELIANCE, HDFCBANK, INFY, ICICIBANK and ITC as suggested holdings; their current exchange tokens must be checked against the Angel One instrument master. The attachment's “multi-asset” heading is broader than its explicit initial scope. Gold, government debt and mutual-fund extensions should be described as later work until their data and return conventions are supported.
@@ -47,8 +49,20 @@ Angel One unadjusted candle closes must not be silently mixed with yfinance auto
 
 **Result: verified on the saved Indian equity dataset and small hand-calculated fixtures.** The real analysis reads the immutable fixed quantities attached to the chosen SQLite dataset, calculates drifting market weights and buy-and-hold portfolio value, and compares with NIFTY 50 on valid matching daily returns. It calculates endpoint annualized price performance, sample volatility, Sharpe with an explicitly chosen annual INR risk-free assumption, observed maximum drawdown, nearest-rank historical one-day VaR/ES, correlation and latest-weight covariance risk contributions. A regression check preserves a portfolio drawdown occurring on a benchmark-missing date. Results, assumptions and finite scalar values are saved with the dataset lineage. The existing Streamlit dashboard is still on the separate fictional portfolio. See [PHASE_4_ANALYTICS.md](PHASE_4_ANALYTICS.md) for formulas, sample numbers and limitations.
 
-## Later gates and decisions
+## Phase 5 and Phase 6
 
-P5–P8 cover Indian stress scenarios, the real-data dashboard, end-to-end financial validation and interview handoff. Existing screens and functions are starter material until their gates pass.
+**Phase 5: implemented and verified.** Configurable broad-market, banking, IT, individual-stock and sector shocks produce holding-level INR contributions with percentage reconciliation. Target drift and single-name/HHI concentration alerts use the saved dataset and Phase 4 valuation date. Scenario runs and contributions are stored with dataset/analysis lineage. The recheck passed 83 repository tests; the saved local scenario reconciles across five holdings and SQLite integrity/foreign-key checks passed. See [PHASE_5_STRESS_TESTS.md](PHASE_5_STRESS_TESTS.md).
+
+**Phase 6: implemented.** The Streamlit app now presents the real saved dataset, matching-date NIFTY comparison, KPI cards, editable session-only target weights, allocation and risk-contribution charts, correlation and drawdown charts, interactive stress previews, source/quality details and computed rule-based briefing. It handles a database with no imported real dataset without showing fictional prices as market performance. The code compiles and chart inputs were exercised; browser-level interaction remains to be confirmed locally because this environment blocked the HTTP health probe and its AppTest runner did not complete. See [PHASE_6_DASHBOARD.md](PHASE_6_DASHBOARD.md).
+
+## Remaining gates and decisions
+
+## Phase 7 and Phase 8 — verification and handoff
+
+**Phase 7 automated checks: complete.** The audit added hand-calculated portfolio and risk cases, scenario reconciliation, invalid inputs, missing/duplicate observations, mismatched windows, source-close comparison tests, and a local NSE CSV parser. The full suite passes 91 tests; Python compilation, `pip check`, SQLite `integrity_check` and `foreign_key_check` pass. The source-comparison utility and checklist are in [PHASE_7_VERIFICATION.md](PHASE_7_VERIFICATION.md).
+
+**Independent NSE comparison: limited spot check completed in the final audit.** Ten official displayed NIFTY 50 price-index closes matched the saved provider series within 0.01 index points. The reference is a transcription, not an original NSE export; the rest of the sample and the stock prices remain unverified. See [FINAL_AUDIT.md](FINAL_AUDIT.md).
+
+**Phase 8: prepared.** The project README documents the use case, implemented workflow, calculations, schema, setup, limitations, source links and screenshot placeholders. Evidence-based CV bullets and ten sample interview questions and answers are in [PORTFOLIOPULSE_CV_INTERVIEW.md](PORTFOLIOPULSE_CV_INTERVIEW.md). Screenshots still need to be captured and added before a public repository handoff.
 
 The user reconfirmed **buy and hold** for Phase 4: fixed quantities with drifting market weights. This resolves the new prompt's “fixed weights” wording; the implemented formula and tests follow the confirmed buy-and-hold convention.

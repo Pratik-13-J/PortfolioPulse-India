@@ -1,5 +1,7 @@
 # Phase 3 verification — data quality and SQLite
 
+This records the Phase 3 state. The later [final audit](FINAL_AUDIT.md) contains the current browser and limited NSE spot-check results.
+
 ## Result
 
 Phase 3 is complete for the locally saved, source-labelled Indian equity CSV. The import keeps the fictional dashboard portfolio separate from the real NSE portfolio. Angel One authenticated earlier, but its historical endpoint returned HTTP 403; this phase used the accepted Yahoo Finance CSV fallback and does not establish a live Angel One candle result or an independent NSE price match.

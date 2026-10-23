@@ -1,8 +1,10 @@
 # Phase 4 verification — Indian equity portfolio analytics
 
+This records the Phase 4 state. The later [final audit](FINAL_AUDIT.md) contains the current browser and limited NSE spot-check results.
+
 ## Result and scope
 
-Phase 4 calculates and stores risk measures for the **saved, real NSE equity dataset**. It reads the immutable share quantities saved with that dataset, not the current editable portfolio configuration. The model is buy and hold: quantities remain fixed, while INR market values and weights drift. NIFTY 50 is a separate price-index benchmark. The existing Streamlit dashboard still shows the fictional demo until its later integration phase.
+Phase 4 calculates and stores risk measures for the **saved, real NSE equity dataset**. It reads the immutable share quantities saved with that dataset, not the current editable portfolio configuration. The model is buy and hold: quantities remain fixed, while INR market values and weights drift. NIFTY 50 is a separate price-index benchmark. Phase 6 now presents these tested results in the Streamlit analyst dashboard; session-edited target weights do not rewrite the Phase 4 snapshot.
 
 The verified local dataset contains 4,133 daily OHLCV rows from Yahoo Finance via yfinance 1.7.0, labelled `unadjusted_ohlcv` and `user_declared_unverified`. It has 689 observed union dates, 688 shared price dates and **686 valid paired one-day return dates**. The missing NIFTY 50 close on 15 January 2026 excludes one-day returns on 15 and 16 January. The first observed date has no prior return. No quote or return is filled. Live Angel One historical candles and independent NSE price checks remain pending from the earlier data gates.
 
