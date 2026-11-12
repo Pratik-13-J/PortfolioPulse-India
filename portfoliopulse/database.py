@@ -181,6 +181,16 @@ def save_dataset_scenario(
         return run_id
 
 
+def list_scenario_runs(analysis_id: int, *, path: Path = DB_PATH) -> list[dict[str, Any]]:
+    """Scenario runs linked to one analysis run, in insertion order (read-only)."""
+    with session(path) as con:
+        rows = con.execute(
+            """SELECT scenario_run_id, scenario_name, scenario_type, impact_inr, impact_pct
+               FROM scenario_runs WHERE analysis_id=? ORDER BY scenario_run_id""", (analysis_id,),
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
 def seed_instruments(path: Path = DB_PATH) -> None:
     rows = [(item.symbol, item.name, item.asset_class, item.sector, DEMO_SOURCE) for item in DEMO_INSTRUMENTS]
     with session(path) as con:
