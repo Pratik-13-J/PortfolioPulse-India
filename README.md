@@ -9,7 +9,7 @@ PortfolioPulse analyses a configurable buy-and-hold portfolio of NSE-listed shar
 | Area | Status |
 |---|---|
 | Portfolio analytics, scenario attribution and dashboard | Implemented; the portfolio uses fixed share quantities and weights drift with prices. |
-| Automated verification | 257 pytest tests and 71 subtests pass locally (2026-11-12, read-only dashboard). The tests use deterministic/mock data and hand-checkable examples. |
+| Automated verification | 265 pytest tests and 71 subtests pass locally (2026-11-13). The tests use deterministic/mock data and hand-checkable examples. |
 | Angel One SmartAPI | Adapter, instrument-master resolution, normalization, retries and offline cache are implemented and mock-tested. The October long-window refresh was denied with HTTP 403 access-rate responses. On 2026-11-12 a controlled 15-day live pull succeeded and is stored as dataset 2 (`verified_live`, unadjusted OHLCV, 66 candles). Long-window live access is not yet re-tested, and dataset 2 is too short for risk statistics. |
 | Dataset currently used for local analysis | A separate Yahoo Finance OHLCV CSV imported through the source-labelled fallback, marked `unadjusted_ohlcv` and user-declared/unverified. It is not Angel One data. |
 | Schema and provenance (Conv 2) | SQLite schema is versioned (`schema_version`, currently 3) with backup-first migrations. Datasets carry a `verification_status` ladder and an append-only provenance-event ledger. `split_adjusted_ohlcv` is now a supported basis; dataset 1 is still labelled `unadjusted_ohlcv` because no NSE corporate-action file has been imported to justify a relabel. |
@@ -179,6 +179,12 @@ Run illustrative portfolio construction (engine `phase5_opt_v1`; `--investment-i
 
 See [Conversation 5 handoff](docs/HANDOFF_CONV5.md).
 
+Verify a dataset's price basis against a user-downloaded NSE Corporate Actions CSV and, if needed, create a new adjusted dataset version (the base dataset is never modified; nothing is downloaded):
+
+```powershell
+.\.venv\Scripts\python.exe -m scripts.corporate_actions --help
+```
+
 Diagnose the Angel One HTTP 403 without exposing secrets (offline by default; `--live` authenticates from your local `.env` and prints only status codes, hosts, header names, error codes and fixed labels):
 
 ```powershell
@@ -193,7 +199,7 @@ Run all automated tests:
 .\.venv\Scripts\python.exe -m pytest -q -p no:cacheprovider
 ```
 
-The current local run (2026-11-12) completed with **257 tests passing and 71 passing subtests**. API tests use mocks; live Angel One historical access remains unverified.
+The current local run (2026-11-12) completed with **265 tests passing and 71 passing subtests**. API tests use mocks; live Angel One historical access remains unverified.
 
 An independent **ten-date spot check** of NIFTY 50 price-index closes for 1–15 October 2026 was completed against values displayed on [NSE Indices historical data](https://www.niftyindices.com/reports/historical-data). All ten provider values were within 0.01 index points; the largest absolute difference was 0.00078125 points. The [reference CSV](docs/reference/nifty50_nse_indices_2026-10-01_2026-10-15.csv) is a transcription of the displayed official table, not an original NSE export. See [Final audit](docs/FINAL_AUDIT.md) for the comparison command and limitations. For a broader comparison, obtain an official NIFTY 50 price-index CSV and follow the checklist in [Phase 7 verification](docs/PHASE_7_VERIFICATION.md).
 

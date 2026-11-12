@@ -97,6 +97,8 @@ Keep business logic out of the Streamlit presentation layer. Prefer small, testa
 - `optimization_analysis.py` (Conv 5) — orchestration under `engine_version = phase5_opt_v1`; writes only the migration-4 `optimization_*` tables (CLI `scripts/analyze_optimization.py`).
 - `ui/stored_results.py`, `ui/charts.py` (Conv 6) — read-only (`mode=ro`) loaders for stored engine runs and Plotly chart builders; no financial logic.
 - `reporting.py` (Conv 6) — CSV zip and self-contained HTML reports with a provenance header.
+- `nse_corporate_actions.py` — converts a user-downloaded NSE Corporate Actions CSV into the project format (bonus/split ratios, dividends, demerger); unparseable rows go to review and block writing.
+- `price_basis_versioning.py` — ex-date evidence classifier and `build_adjusted_version`, which creates a NEW split/bonus-adjusted dataset with a `corporate_action_review` lineage event; the base dataset is never written (CLI `scripts/corporate_actions.py`).
 - `scenarios.py` — definitions/generation of broad-market, banking, IT/sector, and individual-holding shocks.
 - `attribution.py` — holding-level scenario impact attribution, reconciliation, allocation drift, and concentration alerts.
 - `scenario_analysis.py` — orchestration of dataset-linked scenario calculations and persistence.
@@ -493,3 +495,24 @@ Full details: `docs/HANDOFF_CONV6.md`. Branch `conv6-dashboard` (from `c4ca993`,
   - Likely basis: Yahoo split/bonus-adjusted, not dividend-adjusted, demerger unadjusted. **Unverified** until an NSE corporate-action file is imported. The event dates above are general knowledge, not data.
 - **User decision:** if a correction is needed, create a **new dataset version** (e.g. dataset 3) that references dataset 1 and the NSE reference file. Do **not** relabel or modify dataset 1 or its runs 9–12.
 - Waiting on the user to supply the NSE Corporate Actions CSV(s) for RELIANCE, HDFCBANK, INFY, ICICIBANK and ITC (2024-01-01 to 2026-10-16) in `data/incoming/reference/`, with source URL and retrieval time. A demerger adjustment additionally needs ITC's cost-of-acquisition split or NSE's ex-date adjusted price; without one, it stays unadjusted and flagged.
+
+### 2026-11-13 — Corporate-action tooling built (no data imported)
+
+- **New:** `portfoliopulse/nse_corporate_actions.py`, `portfoliopulse/price_basis_versioning.py`, `scripts/corporate_actions.py` (`convert` / `import` / `evidence` / `build-version`), `tests/test_corporate_action_versioning.py` (7 tests, hand-made fixtures only).
+- **Conventions:**
+  - bonus a:b → ratio_new = a + b, ratio_old = b;
+  - split from F_old to F_new → ratio_new = F_old, ratio_old = F_new;
+  - price factor = ratio_old / ratio_new; volume is divided by the factor;
+  - several dividends on one ex-date are summed;
+  - meeting notices are ignored;
+  - anything unrecognised goes to review and blocks writing.
+- **Classification:** compares r with the expected unadjusted move f(1+b)−1 and with b. The outcomes are `unadjusted`, `already_adjusted` or `ambiguous`; demergers are `requires_value_source`, and dividends are information only.
+- **Versioning:**
+  - `split_adjusted_ohlcv` only; a demerger-adjusted basis needs a future schema migration;
+  - every split/bonus in the window needs a decision, and factors must equal the reference ratios;
+  - rows are validated as exact scalings of the base;
+  - the new dataset gets a lineage event;
+  - it refuses if current holdings differ from the base snapshot;
+  - idempotent.
+- **Tests:** 265 passed / 71 subtests. The real DB is unchanged (SHA-256 `dd4673ce…`).
+- **Next:** the user supplies the NSE CSV(s) → `convert` → `import` → `evidence` → decide → `build-version` → re-run engines on the new dataset.
