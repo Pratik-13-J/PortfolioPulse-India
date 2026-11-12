@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import hashlib
 import io
 import json
 import os
+import stat
 import sqlite3
 import unittest
 import zipfile
@@ -33,6 +35,25 @@ def _fingerprint(db: Path) -> list[tuple]:
     with closing(sqlite3.connect(db)) as con:
         tables = [r[0] for r in con.execute("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")]
         return [(t, con.execute(f'SELECT COUNT(*) FROM "{t}"').fetchone()[0]) for t in tables]
+
+
+def _file_state(db: Path) -> tuple[str, int]:
+    return hashlib.sha256(db.read_bytes()).hexdigest(), db.stat().st_mtime_ns
+
+
+class _ReadOnlyFile:
+    """Mark the DB file read-only at the OS level, so any write attempt fails loudly."""
+
+    def __init__(self, db: Path):
+        self.db = db
+
+    def __enter__(self):
+        os.chmod(self.db, stat.S_IREAD)
+        return self
+
+    def __exit__(self, *exc):
+        os.chmod(self.db, stat.S_IREAD | stat.S_IWRITE)
+        return False
 
 
 def _run_app(db: Path, *, timeout: int = 180) -> AppTest:
@@ -120,12 +141,16 @@ class DashboardTests(unittest.TestCase):
         self.assertEqual(archive.namelist(), ["provenance.csv", "t.csv"])
         self.assertIn(LABELS[0].split(";")[0], archive.read("provenance.csv").decode())
 
-    def test_app_renders_every_tab_without_exceptions_and_without_new_engine_rows(self):
-        before = _fingerprint(self.db)
-        with _pointed_at(self.db):
-            self._render_and_click(before)
+    def test_app_is_read_only_and_renders_every_tab(self):
+        before_rows, before_file = _fingerprint(self.db), _file_state(self.db)
+        with _pointed_at(self.db), _ReadOnlyFile(self.db):
+            self._render_and_interact()
+        self.assertEqual(_fingerprint(self.db), before_rows)
+        self.assertEqual(_file_state(self.db), before_file)  # bytes and mtime unchanged
+        self.assertFalse(Path(f"{self.db}-journal").exists())
+        self.assertFalse(Path(f"{self.db}-wal").exists())
 
-    def _render_and_click(self, before):
+    def _render_and_interact(self):
         app = _run_app(self.db)
         self.assertEqual(len(app.exception), 0, [e.value for e in app.exception])
         self.assertEqual(len(app.tabs), 11)
@@ -135,10 +160,11 @@ class DashboardTests(unittest.TestCase):
         warnings = " ".join(str(w.value) for w in app.warning)
         self.assertIn("Gated", warnings)
         self.assertIn("Not forecasts", warnings)
-        after = dict(_fingerprint(self.db))
-        for table, count in before:
-            if table not in ("analysis_metadata", "analysis_results"):
-                self.assertEqual(after[table], count, table)  # only the existing Phase 4 load may add a run
+        self.assertTrue(any("not saved" in str(c.value) for c in app.caption))
+        # Changing settings used to persist a new Phase 4 run; it must now stay in memory.
+        next(n for n in app.number_input if n.label.startswith("Annual INR risk-free")).set_value(5.0).run()
+        next(b for b in app.selectbox if b.label == "Historical one-day VaR confidence").set_value(0.99).run()
+        self.assertEqual(len(app.exception), 0, [e.value for e in app.exception])
         prepare = next(b for b in app.button if b.label == "Prepare CSV and HTML report")
         prepare.click().run()
         self.assertEqual(len(app.exception), 0, [e.value for e in app.exception])
@@ -149,9 +175,11 @@ class DashboardTests(unittest.TestCase):
 class EmptyStateTests(unittest.TestCase):
     def test_empty_database_shows_guidance(self):
         with TemporaryDirectory(dir=PROJECT_ROOT / ".tmp") as temp:
-            with _pointed_at(Path(temp) / "empty.db"):
-                app = _run_app(Path(temp) / "empty.db", timeout=60)
+            missing = Path(temp) / "empty.db"
+            with _pointed_at(missing):
+                app = _run_app(missing, timeout=60)
             self.assertEqual(len(app.exception), 0)
+            self.assertFalse(missing.exists())  # the read-only dashboard never creates a database
             self.assertTrue(any("No real Indian market dataset" in str(i.value) for i in app.info))
 
     def test_dataset_without_stored_runs_points_to_cli(self):
@@ -161,8 +189,10 @@ class EmptyStateTests(unittest.TestCase):
             upsert_configured_portfolio(CONFIG, path=db)
             candles, metadata = _synthetic(30)
             import_candle_dataset(candles, metadata=metadata, path=db)
-            with _pointed_at(db):
+            before = _file_state(db)
+            with _pointed_at(db), _ReadOnlyFile(db):
                 app = _run_app(db, timeout=120)
+            self.assertEqual(_file_state(db), before)
             self.assertEqual(len(app.exception), 0, [e.value for e in app.exception])
             infos = " ".join(str(i.value) for i in app.info)
             for engine in ("phase3_risk_v1", "phase4_stress_v1", "phase5_opt_v1"):
@@ -171,3 +201,22 @@ class EmptyStateTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ReadOnlyConnectionTests(unittest.TestCase):
+    def test_read_only_connection_rejects_writes_and_never_creates_files(self):
+        from portfoliopulse.database import connect, list_candle_datasets
+        with TemporaryDirectory(dir=PROJECT_ROOT / ".tmp") as temp:
+            db = Path(temp) / "ro.db"
+            initialize(db)
+            con = connect(db, read_only=True)
+            try:
+                with self.assertRaises(sqlite3.OperationalError):
+                    con.execute("CREATE TABLE should_fail(x INTEGER)")
+            finally:
+                con.close()
+            self.assertEqual(list_candle_datasets(db, read_only=True), [])
+            missing = Path(temp) / "nested" / "missing.db"
+            with self.assertRaises(FileNotFoundError):
+                connect(missing, read_only=True)
+            self.assertFalse(missing.parent.exists())

@@ -50,6 +50,11 @@ Six tabs were added after the original five, which are unchanged:
 
 These tabs read stored runs through `portfoliopulse/ui/stored_results.py` (SQLite `mode=ro`) and never recompute or write financial results. Create or refresh runs with `scripts.analyze_risk`, `scripts.analyze_stress` and `scripts.analyze_optimization`.
 
-Set `PORTFOLIOPULSE_DB` to point the app at a copy of the database. Opening a dataset still runs the existing Phase 4 analysis, which can add an `analysis_metadata` row.
+Set `PORTFOLIOPULSE_DB` to point the app at a different database file. **The dashboard is fully read-only:**
+- every connection uses SQLite `mode=ro`;
+- the schema is not initialized or migrated;
+- Phase 4 analytics for the selected settings are computed in memory and never saved.
+
+Ingest data and persist runs with the `scripts/` command-line tools.
 
 Verification: Streamlit `AppTest` renders all 11 tabs with zero exceptions on a fixture DB, an empty DB, and a dataset without stored runs. A manual browser check against a DB copy covered dataset 1. See [Conversation 6 handoff](HANDOFF_CONV6.md).

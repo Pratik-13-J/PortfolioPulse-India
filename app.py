@@ -14,8 +14,8 @@ import streamlit as st
 from portfoliopulse.attribution import allocation_alerts, scenario_attribution
 from portfoliopulse.briefing import portfolio_analyst_briefing
 from portfoliopulse.config import DB_PATH, REAL_PORTFOLIO_NAME
-from portfoliopulse.database import get_dataset_info, initialize, list_candle_datasets
-from portfoliopulse.portfolio_analysis import Phase4Analysis, analyze_saved_dataset
+from portfoliopulse.database import get_candle_dataset, get_dataset_info, list_candle_datasets
+from portfoliopulse.portfolio_analysis import Phase4Analysis, compute_phase4_analysis
 from portfoliopulse.scenarios import scenario_shocks
 from portfoliopulse.benchmark_attribution import attribution_gate
 from portfoliopulse.reporting import csv_bundle, html_report, provenance_rows
@@ -28,15 +28,20 @@ st.set_page_config(page_title="PortfolioPulse India | Risk Monitor", page_icon="
 
 # PORTFOLIOPULSE_DB lets tests and reviewers point the dashboard at a copy of the database.
 DATABASE = Path(os.environ.get("PORTFOLIOPULSE_DB", str(DB_PATH)))
+# The dashboard is read-only: every database access uses SQLite mode=ro, nothing is
+# initialized or migrated here, and analytics are computed in memory without saving.
+# Use the scripts/ command-line tools to ingest data or persist analysis runs.
 
 
 @st.cache_data(show_spinner="Loading and validating the saved market dataset…")
 def _load_analysis(dataset_id: int, annual_rf: float, confidence: float, database_path: str) -> Phase4Analysis:
-    return analyze_saved_dataset(
+    path = Path(database_path)
+    return compute_phase4_analysis(
         dataset_id,
+        get_dataset_info(dataset_id, path=path, read_only=True),
+        get_candle_dataset(dataset_id, path=path, read_only=True),
         annual_risk_free_rate=annual_rf,
         confidence=confidence,
-        db_path=Path(database_path),
     )
 
 
@@ -64,9 +69,8 @@ def _dataset_label(item: dict[str, object]) -> str:
 
 
 try:
-    initialize(DATABASE)
-    datasets = [
-        item for item in list_candle_datasets(DATABASE)
+    datasets = [] if not DATABASE.exists() else [
+        item for item in list_candle_datasets(DATABASE, read_only=True)
         if item["portfolio_name"] == REAL_PORTFOLIO_NAME
     ]
 except Exception as exc:
@@ -109,7 +113,7 @@ except (ValueError, OSError, RuntimeError, sqlite3.Error) as exc:
     st.stop()
 
 try:
-    dataset_info = get_dataset_info(dataset_id, path=DATABASE)
+    dataset_info = get_dataset_info(dataset_id, path=DATABASE, read_only=True)
     snapshot = [row for row in dataset_info["portfolio_snapshot"] if not row["is_benchmark"]]
 except (ValueError, OSError, sqlite3.Error) as exc:
     st.error(f"Could not load the saved holding snapshot: {exc}")
@@ -125,7 +129,7 @@ target_defaults = {str(row["symbol"]): float(row["target_weight"]) for row in sn
 st.caption(
     f"{analysis.portfolio_name} · {analysis.quality.start} to "
     f"{(analysis.quality.aligned_prices.index[-1]).strftime('%Y-%m-%d')} · "
-    f"valuation date {analysis.risk_weight_date} · analysis {analysis.analysis_id}"
+    f"valuation date {analysis.risk_weight_date} · computed in memory (read-only dashboard; not saved)"
 )
 
 metrics = analysis.metrics

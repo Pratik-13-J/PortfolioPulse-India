@@ -51,7 +51,7 @@ Scope: presentation and reporting only. No new financial logic, no change to any
 
 ## 3. Known limitations
 
-1. **Opening a dataset can write to the DB.** The dashboard's existing Performance path calls `analyze_saved_dataset`, which persists a Phase 4 run for any new settings combination. That behaviour predates Conv 6 and was kept. Making the dashboard fully read-only would change an existing workflow, so it needs your decision.
+1. ~~Opening a dataset can write to the DB.~~ **Resolved:** the dashboard is now fully read-only (see §6).
 2. **Stored runs are shown as computed.** The sidebar risk-free rate and confidence do not re-run the Phase 3/4/5 engines; their settings are shown in the captions. Re-running them is a CLI action.
 3. **Dataset 2 has no stored engine runs**, by design: it is too short. The tabs show how to create runs instead.
 4. **HTML reports are large (~4–5 MB)** because Plotly JS is embedded for offline use. No PNG/kaleido export was added (no new dependency).
@@ -71,7 +71,7 @@ The roadmap's numbered phases (1–7) are now implemented on stacked, unmerged b
 
 Suggested next steps, in order:
 1. **Review and merge the branch stack** into `main`. Each branch fast-forwards onto the next.
-2. Decide whether the dashboard should become fully read-only. (Analysis 12 is kept, per the user.)
+2. Done: the dashboard is fully read-only (§6). Analysis 12 is kept, per the user.
 3. **Data decisions carried forward:**
    - the NSE corporate-action file (confirms dataset 1's price basis);
    - the long Angel One pull (a verified long sample);
@@ -79,3 +79,17 @@ Suggested next steps, in order:
    - the RBI/FBIL rate and FX series (replaces the assumed sensitivities);
    - the cost rates and constraints in `config/optimization.json`.
 4. **Re-run the engines** on any new verified dataset with the CLIs; the dashboard picks up the latest run automatically.
+
+## 6. Follow-up (2026-11-12): fully read-only dashboard
+
+At the user's request, the dashboard no longer writes to the database.
+
+- **`app.py`:**
+  - The `initialize()` call was removed; schema creation and migrations are CLI-only now.
+  - `analyze_saved_dataset` was replaced by `compute_phase4_analysis`, fed by `read_only=True` reads, so no Phase 4 run is persisted.
+  - A missing DB shows the ingestion guidance and is not created.
+- **`portfoliopulse/database.py`:** an opt-in `read_only` flag on `connect`, `session`, `get_dataset_info`, `get_candle_dataset` and `list_candle_datasets` (SQLite `mode=ro`). Existing callers are unchanged.
+- **Verification:**
+  - **Suite:** 257 passed / 71 subtests.
+  - **AppTest:** runs against an OS-level read-only DB file. After rendering all tabs, changing the risk-free rate and confidence, and preparing the reports, the file's SHA-256 and mtime are unchanged and no journal file appears. Another test confirms that read-only connections reject writes and never create files.
+  - **Live check on the real `data/portfoliopulse.db`:** switched dataset and changed rf (Sharpe recomputed in memory). The file hash and mtime were unchanged, and there are still 12 analysis rows.

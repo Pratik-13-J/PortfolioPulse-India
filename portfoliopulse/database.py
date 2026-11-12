@@ -22,18 +22,25 @@ from portfoliopulse.migrations import (
 )
 
 
-def connect(path: Path = DB_PATH) -> sqlite3.Connection:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    con = sqlite3.connect(path)
+def connect(path: Path = DB_PATH, *, read_only: bool = False) -> sqlite3.Connection:
+    """Open the database; ``read_only`` uses SQLite ``mode=ro`` and never creates or writes the file."""
+    path = Path(path)
+    if read_only:
+        if not path.exists():
+            raise FileNotFoundError(f"Database not found: {path}")
+        con = sqlite3.connect(f"file:{path.resolve().as_posix()}?mode=ro", uri=True)
+    else:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        con = sqlite3.connect(path)
     con.row_factory = sqlite3.Row
     con.execute("PRAGMA foreign_keys = ON")
     return con
 
 
 @contextmanager
-def session(path: Path = DB_PATH) -> Iterator[sqlite3.Connection]:
+def session(path: Path = DB_PATH, *, read_only: bool = False) -> Iterator[sqlite3.Connection]:
     """Commit or roll back a transaction and always close its connection."""
-    with closing(connect(path)) as con:
+    with closing(connect(path, read_only=read_only)) as con:
         with con:
             yield con
 
@@ -645,9 +652,9 @@ def import_candle_dataset(
     return dataset_id
 
 
-def get_dataset_info(dataset_id: int, *, path: Path = DB_PATH) -> dict[str, Any]:
+def get_dataset_info(dataset_id: int, *, path: Path = DB_PATH, read_only: bool = False) -> dict[str, Any]:
     """Read the explicit source, price basis and quality lineage for a dataset."""
-    with session(path) as con:
+    with session(path, read_only=read_only) as con:
         row = con.execute(
             """SELECT d.*, p.name AS portfolio_name FROM candle_datasets d
                JOIN portfolios p USING(portfolio_id) WHERE d.dataset_id=?""", (dataset_id,),
@@ -664,9 +671,9 @@ def get_dataset_info(dataset_id: int, *, path: Path = DB_PATH) -> dict[str, Any]
     return result
 
 
-def list_candle_datasets(path: Path = DB_PATH) -> list[dict[str, Any]]:
+def list_candle_datasets(path: Path = DB_PATH, *, read_only: bool = False) -> list[dict[str, Any]]:
     """List stored real-market datasets for explicit dashboard selection."""
-    with session(path) as con:
+    with session(path, read_only=read_only) as con:
         rows = con.execute(
             """SELECT d.dataset_id, p.name AS portfolio_name, d.source_name,
                       d.price_basis, d.window_start, d.window_end_exclusive,
@@ -677,9 +684,9 @@ def list_candle_datasets(path: Path = DB_PATH) -> list[dict[str, Any]]:
     return [dict(row) for row in rows]
 
 
-def get_candle_dataset(dataset_id: int, *, path: Path = DB_PATH) -> pd.DataFrame:
+def get_candle_dataset(dataset_id: int, *, path: Path = DB_PATH, read_only: bool = False) -> pd.DataFrame:
     """Return one dataset only; callers must select its ID explicitly."""
-    with session(path) as con:
+    with session(path, read_only=read_only) as con:
         frame = pd.read_sql_query(
             """SELECT i.symbol, l.trading_symbol, l.exchange, c.observation_date AS date,
                       c.open_price AS open, c.high_price AS high, c.low_price AS low,

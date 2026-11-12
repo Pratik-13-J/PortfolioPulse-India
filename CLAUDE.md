@@ -258,7 +258,7 @@ Runtime-only installation:
 .\.venv\Scripts\python.exe -c "from portfoliopulse.database import initialize; initialize()"
 ```
 
-The dashboard also initializes the schema on startup. An empty database should show ingestion guidance, not fabricated/demo performance.
+The dashboard is read-only: it does not initialize or migrate the schema, opens SQLite with `mode=ro`, and computes analytics in memory without saving. Initialize, ingest and persist runs with the commands above. An empty or missing database shows ingestion guidance, not fabricated/demo performance (and no file is created).
 
 ### Configure Angel One (only for live attempts)
 
@@ -459,4 +459,12 @@ Full details: `docs/HANDOFF_CONV6.md`. Branch `conv6-dashboard` (from `c4ca993`,
 - **Tests (actually run):** baseline 250 / 71; final **256 passed / 71 subtests**. Streamlit `AppTest` renders all 11 tabs with zero exceptions on a fixture DB, an empty DB, and a dataset without runs. A manual browser check against a DB copy found and fixed one label collision.
 - **Design:** the new tabs only read stored `phase3_risk_v1` / `phase4_stress_v1` / `phase5_opt_v1` runs through `mode=ro` connections. The existing five tabs are unchanged. `PORTFOLIOPULSE_DB` overrides the DB path; **tests must hold it across AppTest reruns** (see `tests/test_dashboard.py::_pointed_at`).
 - **DB:** all prior rows are bit-identical. **Analysis 12** (dataset 2, `phase8_perf_v1`, rf 0.06 / 95%) was added to the real DB by an early test rerun that fell back to the default path. It is the same row the dashboard creates when a user opens dataset 2, the user decided to keep it.
-- **Open:** the existing Performance path still writes Phase 4 runs on load (pre-existing behaviour; making it read-only needs the user's decision); the branch stack conv2→conv6 awaits review and merge; the data decisions carried forward are unchanged.
+- **Open:** the data decisions carried forward are unchanged. (The branch stack was merged into `main` and pushed; the dashboard was made fully read-only afterwards, see below.)
+
+### 2026-11-12 — Dashboard made fully read-only (user request)
+
+- `app.py` no longer calls `initialize()` or `analyze_saved_dataset()`. It uses `compute_phase4_analysis` in memory, and every DB access passes `read_only=True`. The captions say "computed in memory (read-only dashboard; not saved)".
+- `database.connect` / `session` / `get_dataset_info` / `get_candle_dataset` / `list_candle_datasets` gained an opt-in `read_only` flag (SQLite `mode=ro`; a missing file raises `FileNotFoundError` and creates nothing). The default behaviour of every existing caller is unchanged.
+- Tests: **257 passed / 71 subtests**. AppTest runs against a DB file chmod-ed read-only and asserts its SHA-256 and mtime are unchanged after rendering, changing the risk-free rate / confidence, and preparing reports; a missing DB file is not created.
+- Live check against the real `data/portfoliopulse.db` (switch dataset, change rf): SHA-256 and mtime unchanged; still 12 analysis rows.
+- The read-only stored-run tabs still need runs created via `scripts.analyze_risk` / `analyze_stress` / `analyze_optimization`.
