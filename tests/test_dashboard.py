@@ -220,3 +220,21 @@ class ReadOnlyConnectionTests(unittest.TestCase):
             with self.assertRaises(FileNotFoundError):
                 connect(missing, read_only=True)
             self.assertFalse(missing.parent.exists())
+
+
+class DefaultDatasetTests(unittest.TestCase):
+    def test_prefers_dataset_with_stored_runs(self):
+        from portfoliopulse.ui.stored_results import default_dataset_index
+        with TemporaryDirectory(dir=PROJECT_ROOT / ".tmp") as temp:
+            db = Path(temp) / "two.db"
+            initialize(db)
+            upsert_configured_portfolio(CONFIG, path=db)
+            candles, metadata = _synthetic(260)
+            older = import_candle_dataset(candles, metadata=metadata, path=db)
+            analyze_saved_dataset_risk(older, db_path=db, mc_paths=10_000, mc_batches=20)
+            short, short_meta = _synthetic(12)
+            newer = import_candle_dataset(short, metadata=short_meta, path=db)  # no stored runs
+            self.assertNotEqual(newer, older)
+            ids = [newer, older]  # most recent first, as the dashboard lists them
+            self.assertEqual(ids[default_dataset_index(ids, db_path=db)], older)
+            self.assertEqual(default_dataset_index([999], db_path=db), 0)

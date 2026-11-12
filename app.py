@@ -21,7 +21,9 @@ from portfoliopulse.benchmark_attribution import attribution_gate
 from portfoliopulse.reporting import csv_bundle, html_report, provenance_rows
 from portfoliopulse.risk_analysis import COMPARISON_LABEL
 from portfoliopulse.ui import charts
-from portfoliopulse.ui.stored_results import CLI, ENGINES, latest_run, optimization_view, risk_view, stress_view
+from portfoliopulse.ui.stored_results import (
+    CLI, ENGINES, default_dataset_index, latest_run, optimization_view, risk_view, stress_view,
+)
 
 
 st.set_page_config(page_title="PortfolioPulse India | Risk Monitor", page_icon="📈", layout="wide")
@@ -91,7 +93,9 @@ with st.sidebar:
     st.header("Analysis settings")
     selected_dataset = st.selectbox(
         "Saved Indian dataset", datasets, format_func=_dataset_label,
-        index=0, key="selected_dataset",
+        index=default_dataset_index([int(item["dataset_id"]) for item in datasets], db_path=DATABASE),
+        key="selected_dataset",
+        help="Defaults to the most recent dataset that has stored risk/stress/optimization runs.",
     )
     dataset_id = int(selected_dataset["dataset_id"])
     annual_rf = st.number_input(

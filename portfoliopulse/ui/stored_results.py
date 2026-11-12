@@ -73,6 +73,14 @@ def latest_run(dataset_id: int, kind: str, *, db_path: Path) -> StoredRun | None
                      json.loads(row["quality_json"]), metrics)
 
 
+def default_dataset_index(dataset_ids: list[int], *, db_path: Path) -> int:
+    """Index of the first listed dataset (most recent first) with any stored engine run, else 0."""
+    for index, dataset_id in enumerate(dataset_ids):
+        if any(latest_run(dataset_id, kind, db_path=db_path) is not None for kind in ENGINES):
+            return index
+    return 0
+
+
 def _split(name: str) -> list[str]:
     return name.split(":")
 
