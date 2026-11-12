@@ -1,0 +1,70 @@
+{
+  "library_version": "stress_library_v1",
+  "interpretation": "Hypothetical one-period stress revaluations of the current fixed-quantity holdings. Not forecasts, predictions or investment advice. Every shock value below is a configurable illustrative assumption unless a scenario states it is replayed from observed dataset closes.",
+  "historical_events": [
+    {
+      "event_id": "covid_crash_2020",
+      "name": "COVID-19 market crash (2020)",
+      "start": "2020-01-14",
+      "end": "2020-03-23",
+      "window_basis": "Analyst-defined approximate NIFTY 50 closing peak and trough dates; verify against NSE Indices before relying on them. No price data for this window is bundled with the project."
+    },
+    {
+      "event_id": "inflation_rate_shock_2022",
+      "name": "2022 global inflation and interest-rate shock",
+      "start": "2022-01-17",
+      "end": "2022-06-17",
+      "window_basis": "Analyst-defined approximate NIFTY 50 closing peak and trough dates; verify against NSE Indices before relying on them. No price data for this window is bundled with the project."
+    },
+    {
+      "event_id": "india_election_result_2024",
+      "name": "Indian general-election result day (4 June 2024)",
+      "start": "2024-06-03",
+      "end": "2024-06-04",
+      "window_basis": "Close of the prior session to the close of result day."
+    },
+    {
+      "event_id": "global_risk_off_aug_2024",
+      "name": "Global risk-off / carry-trade unwind (5 August 2024)",
+      "start": "2024-08-02",
+      "end": "2024-08-05",
+      "window_basis": "Close of the prior session to the close of 5 August 2024."
+    },
+    {
+      "event_id": "us_tariff_shock_apr_2025",
+      "name": "US tariff shock (7 April 2025)",
+      "start": "2025-04-04",
+      "end": "2025-04-07",
+      "window_basis": "Close of the prior session to the close of 7 April 2025."
+    }
+  ],
+  "data_identified_events": {
+    "worst_benchmark_drawdown": true,
+    "worst_benchmark_day": true
+  },
+  "hypothetical_scenarios": [
+    {"scenario_id": "nifty_minus_10_beta", "name": "NIFTY 50 -10% (beta-propagated)", "kind": "beta_market", "market_move": -0.10},
+    {"scenario_id": "nifty_minus_20_beta", "name": "NIFTY 50 -20% (beta-propagated)", "kind": "beta_market", "market_move": -0.20},
+    {"scenario_id": "broad_minus_10_direct", "name": "Every holding -10% (direct)", "kind": "direct", "scenario_type": "broad_market", "broad_shock": -0.10},
+    {"scenario_id": "icicibank_minus_20_direct", "name": "ICICIBANK -20% only (direct)", "kind": "direct", "scenario_type": "individual", "individual_shocks": {"ICICIBANK": -0.20}},
+    {"scenario_id": "icicibank_minus_20_covariance", "name": "ICICIBANK -20% with covariance propagation", "kind": "covariance_individual", "individual_shocks": {"ICICIBANK": -0.20}},
+    {"scenario_id": "infy_minus_20_covariance", "name": "INFY -20% with covariance propagation", "kind": "covariance_individual", "individual_shocks": {"INFY": -0.20}},
+    {"scenario_id": "banking_minus_15_direct", "name": "Banking sector -15% (direct)", "kind": "direct", "scenario_type": "sector", "sector_shocks": {"Banking": -0.15}},
+    {"scenario_id": "it_minus_15_direct", "name": "Information Technology sector -15% (direct)", "kind": "direct", "scenario_type": "sector", "sector_shocks": {"Information Technology": -0.15}},
+    {"scenario_id": "nifty_minus_10_banking_minus_10", "name": "NIFTY 50 -10% (beta) plus Banking -10% overlay", "kind": "combined", "market_move": -0.10, "sector_shocks": {"Banking": -0.10}},
+    {"scenario_id": "rate_plus_100bp", "name": "10Y G-sec yield +100 bp (rate sensitivity)", "kind": "macro", "factor_moves": {"rate_change_pp": 1.0}},
+    {"scenario_id": "usdinr_plus_5pct", "name": "USD/INR +5% (INR depreciation; FX sensitivity)", "kind": "macro", "factor_moves": {"usdinr_change": 0.05}},
+    {"scenario_id": "rate_plus_100bp_usdinr_plus_5pct", "name": "Yield +100 bp and USD/INR +5% (rate and FX sensitivities)", "kind": "macro", "factor_moves": {"rate_change_pp": 1.0, "usdinr_change": 0.05}}
+  ],
+  "assumed_macro_sensitivities": {
+    "basis": "illustrative_assumption_not_estimated",
+    "description": "Sector-level directional assumptions used only when no source-labelled rate/FX series is supplied. rate_change_pp: return per +1 percentage point (100 bp) change in the 10Y G-sec yield. usdinr_change: return per unit (decimal) USD/INR change, e.g. 0.20 means +1% USD/INR gives +0.2%. These numbers are not estimated from data and must be replaced or confirmed by the user.",
+    "by_sector": {
+      "Banking": {"rate_change_pp": -0.04, "usdinr_change": -0.10},
+      "Information Technology": {"rate_change_pp": -0.01, "usdinr_change": 0.40},
+      "Energy": {"rate_change_pp": -0.02, "usdinr_change": -0.20},
+      "Consumer Staples": {"rate_change_pp": -0.015, "usdinr_change": -0.05}
+    },
+    "unclassified": {"rate_change_pp": 0.0, "usdinr_change": 0.0}
+  }
+}
