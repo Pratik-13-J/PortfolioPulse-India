@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-import sqlite3
 import math
+import os
+import sqlite3
 from pathlib import Path
 
 import pandas as pd
@@ -16,9 +17,17 @@ from portfoliopulse.config import DB_PATH, REAL_PORTFOLIO_NAME
 from portfoliopulse.database import get_dataset_info, initialize, list_candle_datasets
 from portfoliopulse.portfolio_analysis import Phase4Analysis, analyze_saved_dataset
 from portfoliopulse.scenarios import scenario_shocks
+from portfoliopulse.benchmark_attribution import attribution_gate
+from portfoliopulse.reporting import csv_bundle, html_report, provenance_rows
+from portfoliopulse.risk_analysis import COMPARISON_LABEL
+from portfoliopulse.ui import charts
+from portfoliopulse.ui.stored_results import CLI, ENGINES, latest_run, optimization_view, risk_view, stress_view
 
 
 st.set_page_config(page_title="PortfolioPulse India | Risk Monitor", page_icon="📈", layout="wide")
+
+# PORTFOLIOPULSE_DB lets tests and reviewers point the dashboard at a copy of the database.
+DATABASE = Path(os.environ.get("PORTFOLIOPULSE_DB", str(DB_PATH)))
 
 
 @st.cache_data(show_spinner="Loading and validating the saved market dataset…")
@@ -55,9 +64,9 @@ def _dataset_label(item: dict[str, object]) -> str:
 
 
 try:
-    initialize(DB_PATH)
+    initialize(DATABASE)
     datasets = [
-        item for item in list_candle_datasets(DB_PATH)
+        item for item in list_candle_datasets(DATABASE)
         if item["portfolio_name"] == REAL_PORTFOLIO_NAME
     ]
 except Exception as exc:
@@ -94,13 +103,13 @@ with st.sidebar:
         st.rerun()
 
 try:
-    analysis = _load_analysis(dataset_id, float(annual_rf), float(confidence), str(DB_PATH))
+    analysis = _load_analysis(dataset_id, float(annual_rf), float(confidence), str(DATABASE))
 except (ValueError, OSError, RuntimeError, sqlite3.Error) as exc:
     st.error(f"This dataset could not be analyzed: {exc}")
     st.stop()
 
 try:
-    dataset_info = get_dataset_info(dataset_id, path=DB_PATH)
+    dataset_info = get_dataset_info(dataset_id, path=DATABASE)
     snapshot = [row for row in dataset_info["portfolio_snapshot"] if not row["is_benchmark"]]
 except (ValueError, OSError, sqlite3.Error) as exc:
     st.error(f"Could not load the saved holding snapshot: {exc}")
@@ -127,9 +136,11 @@ kpi_columns[2].metric("Sharpe ratio", _format_ratio(metrics["portfolio_sharpe"])
 kpi_columns[3].metric("Maximum drawdown", _format_pct(metrics["portfolio_max_drawdown"]))
 kpi_columns[4].metric(f"Historical {confidence:.0%} 1-day VaR", _format_pct(metrics["portfolio_var_1d"]))
 
-performance_tab, allocation_tab, risk_tab, scenario_tab, data_tab = st.tabs(
-    ["Performance", "Portfolio & targets", "Risk & diversification", "Stress tests", "Data & methodology"]
-)
+(performance_tab, benchmark_tab, allocation_tab, risk_tab, var_tab, scenario_tab, stress_library_tab,
+ optimization_tab, attribution_tab, data_tab, reports_tab) = st.tabs([
+    "Performance", "Benchmark comparison", "Portfolio & targets", "Risk & diversification", "VaR & backtests",
+    "Stress tests", "Stress library", "Optimization", "Attribution", "Data & methodology", "Reports",
+])
 
 with performance_tab:
     matched = analysis.returns.cumulative_comparison_returns.dropna(how="any")
@@ -389,3 +400,253 @@ with data_tab:
         - Historical VaR is a past-sample estimate, not a maximum-loss guarantee. Stress scenarios are hypothetical one-period shocks.
         """
     )
+
+
+# --- Conversation 6: read-only views of stored Phase 3/4/5 engine runs ------------------------
+# These tabs only display persisted results; they never recompute or write financial results.
+
+stored_runs = {kind: latest_run(dataset_id, kind, db_path=DATABASE) for kind in ENGINES}
+
+
+def _missing_run(kind: str) -> None:
+    st.info(f"No stored `{ENGINES[kind]}` run for dataset {dataset_id}. Create one from the command line:")
+    st.code(f".\\.venv\\Scripts\\python.exe -m {CLI[kind]} --dataset-id {dataset_id}", language="powershell")
+
+
+def _run_caption(run) -> None:
+    settings = run.settings
+    st.caption(
+        f"Stored run {run.analysis_id} · {run.engine_version} · created {run.created_at_utc} UTC · "
+        f"source {settings.get('source_name')} · verification **{settings.get('verification_status')}** · "
+        f"price basis {settings.get('price_basis')} · {settings.get('comparison_label', COMPARISON_LABEL)}"
+    )
+
+
+def _pct_table(frame: pd.DataFrame, columns: list[str]) -> pd.DataFrame:
+    shown = frame.copy()
+    for column in columns:
+        if column in shown:
+            shown[column] = shown[column].map(_format_pct)
+    return shown
+
+
+with benchmark_tab:
+    st.subheader("Portfolio vs NIFTY 50 (price return vs NIFTY 50 price index, not TRI)")
+    performance = analysis.performance
+    if performance is None:
+        st.info("Relative-performance metrics are unavailable for this dataset.")
+    else:
+        names = {
+            "portfolio_tracking_error_annualized": "Tracking error (annual)",
+            "portfolio_active_return_annualized": "Active return (annual, arithmetic)",
+            "portfolio_information_ratio": "Information ratio", "portfolio_beta": "Beta",
+            "portfolio_downside_beta": "Downside beta", "portfolio_up_capture_ratio": "Up capture",
+            "portfolio_down_capture_ratio": "Down capture", "portfolio_sortino": "Portfolio Sortino",
+            "benchmark_sortino": "NIFTY 50 Sortino",
+        }
+        cols = st.columns(3)
+        for i, (key, label) in enumerate(names.items()):
+            value = performance.metrics.get(key)
+            text = _format_pct(value) if performance.units.get(key) == "annual_ratio" else _format_ratio(value)
+            cols[i % 3].metric(label, text)
+        if performance.undefined:
+            st.caption("Undefined: " + "; ".join(f"{k}: {v}" for k, v in performance.undefined.items()))
+        windows = [w for w in sorted(performance.rolling) if not performance.rolling[w].empty]
+        if windows:
+            window = st.radio("Rolling window (valid observations)", windows, horizontal=True,
+                              index=len(windows) - 1)
+            left, right = st.columns(2)
+            left.plotly_chart(charts.rolling_line(performance.rolling[window], "tracking_error",
+                                                  f"Rolling {window}-day tracking error", percent=True),
+                              width="stretch")
+            right.plotly_chart(charts.rolling_line(performance.rolling[window], "beta",
+                                                   f"Rolling {window}-day beta", percent=False), width="stretch")
+        else:
+            st.info("Not enough valid returns for any rolling window.")
+        periods = pd.DataFrame([{"period": k, **(v or {"note": "not enough history"})}
+                                for k, v in performance.periods.items()])
+        st.dataframe(periods.astype(str), hide_index=True, width="stretch")
+        st.caption(f"{performance.observations:,} matched valid daily returns. Price returns only; NIFTY 50 is the "
+                   "price index, not the total-return index.")
+
+with var_tab:
+    run = stored_runs["risk"]
+    if run is None:
+        _missing_run("risk")
+    else:
+        _run_caption(run)
+        view = risk_view(run)
+        if view["reliability"] != "in_sample_historical":
+            st.warning(f"Only {view['observations']} valid returns: tail statistics are smoke-test quality only.")
+        level = st.radio("Confidence", ["c95", "c99"], index=1, horizontal=True, format_func=charts.label_conf)
+        st.plotly_chart(charts.var_methods(view["var_table"], level), width="stretch")
+        st.caption("One-day losses as a share of portfolio value; Monte Carlo error bars are ±1.96 batch-means "
+                   "standard errors. In-sample statistics, not forecasts or loss limits; no square-root-of-time scaling.")
+        table = view["var_table"][view["var_table"]["confidence"] == level]
+        st.dataframe(_pct_table(table, ["var", "es", "var_standard_error", "es_standard_error"]),
+                     hide_index=True, width="stretch")
+        tail = pd.DataFrame(view["tails"].get(f"portfolio:{level}", []))
+        st.subheader(f"Historical tail: k = {len(tail)} worst of {view['observations']} valid returns")
+        st.dataframe(_pct_table(tail, ["daily_return"]), hide_index=True, width="stretch")
+        st.subheader("Backtests (rolling one-day-ahead forecasts)")
+        if view["backtests"].empty:
+            st.info("Backtests undefined: " + "; ".join(v for k, v in view["undefined"].items() if "backtest" in k))
+        else:
+            st.dataframe(view["backtests"].round(4), hide_index=True, width="stretch")
+            st.caption("Kupiec POF and Christoffersen independence chi-square p-values; small p-values reject correct "
+                       "coverage or independence. Asymptotic tests on one short history: indicative only.")
+        st.subheader("Drawdown duration and recovery")
+        dd = view["drawdowns"].get("portfolio", {})
+        episode = dd.get("max_drawdown_episode", {})
+        cols = st.columns(4)
+        cols[0].metric("Maximum drawdown", _format_pct(dd.get("max_drawdown")))
+        cols[1].metric("Peak to trough (sessions)", str(episode.get("observations_to_trough", "n/a")))
+        cols[2].metric("Peak to recovery (sessions)", str(episode.get("duration_observations", "n/a")),
+                       delta=None if episode.get("recovered", True) else "not recovered", delta_color="off")
+        cols[3].metric("Current drawdown", _format_pct(dd.get("current_drawdown")))
+        st.caption(f"Peak {episode.get('peak_date')} · trough {episode.get('trough_date')} · recovery "
+                   f"{episode.get('recovery_date') or 'not yet'}. Sessions are dataset dates, not a validated NSE "
+                   "calendar.")
+        components = view["components"]
+        if not components.empty:
+            estimator = st.selectbox("Component VaR/ES allocation", sorted(components["estimator"].unique()))
+            part = components[(components["estimator"] == estimator) & (components["confidence"] == level)]
+            if part.empty:
+                st.info("No components stored for this estimator and confidence.")
+            else:
+                pivot = part.pivot_table(index="symbol", columns="measure", values="value").reset_index()
+                st.dataframe(_pct_table(pivot, ["component_var_1d", "component_es_1d"]), hide_index=True,
+                             width="stretch")
+                st.caption("Euler components sum to the method's total VaR/ES.")
+
+with stress_library_tab:
+    run = stored_runs["stress"]
+    if run is None:
+        _missing_run("stress")
+    else:
+        _run_caption(run)
+        st.warning("Hypothetical one-period revaluations of the current fixed quantities. Not forecasts.")
+        view = stress_view(run, db_path=DATABASE)
+        comparison = view["comparison"]
+        if comparison.empty:
+            st.info("This stress run has no available scenarios.")
+        else:
+            st.plotly_chart(charts.stress_comparison(comparison), width="stretch")
+            names = comparison.set_index("scenario_id")["scenario_name"]
+            st.plotly_chart(charts.stress_heatmap(view["contributions"], names), width="stretch")
+            shown = comparison[["scenario_name", "category", "scenario_type", "benchmark_move", "impact_inr",
+                                "impact_pct", "worst_holding", "loss_to_historical_var_99",
+                                "loss_to_historical_es_99", "loss_to_max_drawdown"]]
+            st.dataframe(_pct_table(shown, ["benchmark_move", "impact_pct"]).round(2), hide_index=True,
+                         width="stretch")
+            st.caption("Loss multiples compare a one-period stress with one-day 99% historical VaR/ES and the "
+                       "observed maximum drawdown: scale only.")
+            choice = st.selectbox("Scenario detail", list(names.index), format_func=lambda key: names[key])
+            detail = view["contributions"][view["contributions"]["scenario_id"] == choice]
+            st.plotly_chart(charts.stress_waterfall(detail, f"{names[choice]}: holding P&L (INR)"), width="stretch")
+            st.dataframe(_pct_table(detail[["symbol", "holding_value_inr", "shock", "shock_basis", "impact_inr",
+                                            "portfolio_impact_pct"]], ["shock", "portfolio_impact_pct"]),
+                         hide_index=True, width="stretch")
+            st.caption("Shock basis: direct = stated shock; beta_propagated / covariance_propagated = model "
+                       "estimates from in-sample betas or covariance; factor = assumed or estimated rate/FX "
+                       "sensitivity; historical_observed = the holding's own observed event-window return.")
+            sector = pd.DataFrame(view["sector_impact"].get(choice, {})).T
+            if not sector.empty:
+                st.dataframe(sector, width="stretch")
+        if view["unavailable"]:
+            st.subheader("Unavailable scenarios")
+            for key, reason in view["unavailable"].items():
+                st.error(f"{key}: {reason}")
+        for warning in view["warnings"]:
+            st.caption(f"Warning: {warning}")
+
+with optimization_tab:
+    run = stored_runs["optimization"]
+    view = None if run is None else optimization_view(run, db_path=DATABASE)
+    if view is None:
+        _missing_run("optimization")
+    else:
+        _run_caption(run)
+        st.warning("Illustrative, in-sample portfolio construction on a five-stock universe. Not a recommendation; "
+                   "the stored holdings are never changed.")
+        comparison = view["comparison"]
+        for row in comparison.itertuples():
+            if row.status in ("undefined", "infeasible", "failed"):
+                st.error(f"{row.strategy}: {row.status}. {row.message}")
+            elif row.status == "constrained":
+                st.info(f"{row.strategy}: {row.message}")
+        st.plotly_chart(charts.frontier(view["frontier"], comparison), width="stretch")
+        columns = ["strategy", "status", "ex_ante_expected_return", "ex_ante_volatility", "ex_ante_sharpe",
+                   "in_sample_sortino", "in_sample_beta", "in_sample_max_drawdown", "var_1d:historical:c99",
+                   "es_1d:historical:c99", "effective_holdings", "turnover_gross_vs_current",
+                   "oos_net_annualized_return", "oos_net_max_drawdown"]
+        ratios = ("strategy", "status", "ex_ante_sharpe", "in_sample_sortino", "in_sample_beta", "effective_holdings")
+        present = [c for c in columns if c in comparison]
+        st.dataframe(_pct_table(comparison[present], [c for c in present if c not in ratios]).round(3),
+                     hide_index=True, width="stretch")
+        if not view["weights"].empty:
+            st.plotly_chart(charts.strategy_weights(view["weights"]), width="stretch")
+            strategy = st.selectbox("Integer-share allocation", list(view["weights"]["strategy"].unique()))
+            alloc = view["weights"][view["weights"]["strategy"] == strategy]
+            st.dataframe(_pct_table(alloc.drop(columns="strategy"),
+                                    ["target_weight", "current_weight", "allocated_weight"]),
+                         hide_index=True, width="stretch")
+            row = comparison.set_index("strategy").loc[strategy]
+            st.caption(
+                f"Theoretical weights vs whole shares for INR {run.settings.get('investment_amount_inr', 0):,.0f}: "
+                f"residual cash INR {row.get('new_money_residual_cash_inr', float('nan')):,.2f}; transaction costs "
+                f"INR {row.get('new_money_transaction_cost_inr', float('nan')):,.2f} (illustrative cost assumptions).")
+        if not view["walk_forward_net"].empty:
+            st.plotly_chart(charts.walk_forward(view["walk_forward_net"]), width="stretch")
+            failures = {k: len(v) for k, v in view["walk_forward"].get("failures", {}).items() if v}
+            if failures:
+                st.caption("Rebalances where a rule was undefined (prior weights held): "
+                           + ", ".join(f"{k} {v}" for k, v in failures.items()))
+        else:
+            st.info(f"Walk-forward not available: {view['walk_forward'].get('reason')}")
+        st.subheader("Trade-offs")
+        for note in view["tradeoffs"]:
+            st.markdown(f"- {note}")
+
+with attribution_tab:
+    st.subheader("Benchmark attribution (Active Share, Brinson-Fachler)")
+    gate = attribution_gate(None, db_path=DATABASE)
+    st.warning("Gated: " + " ".join(gate.reasons) + " No attribution is calculated or shown without valid NIFTY 50 "
+               "constituent weights; weights are never fabricated.")
+
+with reports_tab:
+    st.subheader("Export")
+    st.caption("Reports are built only from stored results and start with a provenance header.")
+    header = provenance_rows({**dataset_info, "dataset_id": dataset_id}, stored_runs)
+    if st.button("Prepare CSV and HTML report", width="stretch"):
+        tables: dict[str, pd.DataFrame] = {}
+        sections: list[tuple[str, object]] = []
+        if stored_runs["risk"] is not None:
+            rv = risk_view(stored_runs["risk"])
+            tables["var_es"] = rv["var_table"]
+            tables["backtests"] = rv["backtests"]
+            sections += [("VaR and ES (99%)", charts.var_methods(rv["var_table"], "c99")),
+                         ("VaR/ES table", rv["var_table"])]
+        if stored_runs["stress"] is not None:
+            sv = stress_view(stored_runs["stress"], db_path=DATABASE)
+            tables["stress_comparison"] = sv["comparison"]
+            tables["stress_contributions"] = sv["contributions"]
+            if not sv["comparison"].empty:
+                sections.append(("Stress scenarios", charts.stress_comparison(sv["comparison"])))
+            sections.append(("Unavailable scenarios",
+                             [f"{k}: {v}" for k, v in sv["unavailable"].items()] or ["none"]))
+        if stored_runs["optimization"] is not None:
+            ov = optimization_view(stored_runs["optimization"], db_path=DATABASE)
+            if ov is not None:
+                tables["optimization_comparison"] = ov["comparison"]
+                tables["optimization_weights"] = ov["weights"]
+                sections += [("Efficient frontier", charts.frontier(ov["frontier"], ov["comparison"])),
+                             ("Trade-offs", ov["tradeoffs"])]
+        st.session_state["report_zip"] = csv_bundle(tables, header)
+        st.session_state["report_html"] = html_report(f"PortfolioPulse India · dataset {dataset_id}", header, sections)
+    if "report_zip" in st.session_state:
+        st.download_button("Download CSV bundle (.zip)", st.session_state["report_zip"],
+                           file_name=f"portfoliopulse_dataset_{dataset_id}.zip", mime="application/zip")
+        st.download_button("Download HTML report", st.session_state["report_html"],
+                           file_name=f"portfoliopulse_dataset_{dataset_id}.html", mime="text/html")
+    st.dataframe(pd.DataFrame(header, columns=["Field", "Value"]), hide_index=True, width="stretch")
