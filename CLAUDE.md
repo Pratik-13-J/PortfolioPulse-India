@@ -527,3 +527,17 @@ Full details: `docs/HANDOFF_CONV6.md`. Branch `conv6-dashboard` (from `c4ca993`,
 - **DB:** no writes during finalization. The SHA-256 stayed `dd4673ce…` and the row fingerprint stayed `1b307b3e…`.
 - **Repository:** history scan clean (no `.env`, database, backup, key or token ever committed). The README was rewritten into the 12 required sections; `docs/HANDOFF_FINAL.md` was added.
 - **Remaining user data:** the NSE Corporate Actions CSV, NIFTY 50 constituent weights, and RBI/FBIL rate and FX series (see `docs/HANDOFF_FINAL.md` §10).
+
+### 2026-11-13 — Version 1.1 (presentation, diagnostics, CI)
+
+- **VaR diagnostics:**
+  - new `var_models.age_weighted_historical` (Boudoukh-Richardson-Whitelaw; hand-tested; λ = 1 reproduces nearest rank exactly);
+  - `var_backtests.DIAGNOSTIC_METHODS`, keeping `FORECAST_METHODS` for the stored engine unchanged;
+  - read-only `scripts/var_diagnostics.py`;
+  - `docs/VAR_BACKTEST_DIAGNOSTICS.md`: the historical 95% Kupiec failure comes from exception clustering in the 2026-Q1 volatility regime; age-weighted HS passes, but is not adopted (chosen after the fact, one sample).
+- **Dashboard:**
+  - labelled synthetic Brinson-Fachler demo (`ui/attribution_demo.py`, tested), with real attribution still gated;
+  - assumed rate/FX sensitivities listed and labelled in the Stress library.
+- **CI:** `.github/workflows/tests.yml` (windows-latest, Python 3.12, `pip check`, full pytest; no secrets or data). A clean-checkout simulation passed 286/71.
+- **Docs:** `docs/ARCHITECTURE_GUIDE.md`, `FINANCIAL_CONCEPTS_GUIDE.md`, `CODE_WALKTHROUGH.md`, `PROJECT_DEMO.md`, `DATA_DEPENDENCIES.md`; 10 real dashboard screenshots in `docs/images/`; README restructured for recruiters.
+- **Tests:** **286 passed / 71 subtests**; `audit_consistency` 0 failures; the DB is byte- and row-identical (SHA-256 `dd4673ce…`).
