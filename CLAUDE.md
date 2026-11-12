@@ -89,6 +89,12 @@ Keep business logic out of the Streamlit presentation layer. Prefer small, testa
 - `historical_stress.py` (Conv 4) — event-window replay from observed closes; model-propagated fallback from an NSE reference series; otherwise unavailable.
 - `stress_impact.py` (Conv 4) — stressed P&L (via `scenario_attribution`), sector impact, loss shares, integration with VaR/ES, drawdown and risk contributions.
 - `stress_analysis.py` (Conv 4) — stress orchestration under `engine_version = phase4_stress_v1` (CLI `scripts/analyze_stress.py`).
+- `expected_returns.py` (Conv 5) — arithmetic, CAGR and Bayes-Stein annual expected returns with standard errors.
+- `optimization.py` (Conv 5) — covariance PSD validation, configurable constraints, SLSQP min-variance / max-Sharpe (undefined when no feasible return beats rf), log-barrier ERC with constrained fallback, efficient frontier.
+- `portfolio_allocation.py` (Conv 5) — Indian delivery cost model, turnover, integer-share allocation and self-financed rebalance.
+- `portfolio_evaluation.py` (Conv 5) — ex-ante and labelled in-sample metrics for any weight vector, reusing `risk_metrics` / `performance_metrics` / `var_models`.
+- `optimization_backtest.py` (Conv 5) — walk-forward validation without look-ahead, net of costs.
+- `optimization_analysis.py` (Conv 5) — orchestration under `engine_version = phase5_opt_v1`; writes only the migration-4 `optimization_*` tables (CLI `scripts/analyze_optimization.py`).
 - `scenarios.py` — definitions/generation of broad-market, banking, IT/sector, and individual-holding shocks.
 - `attribution.py` — holding-level scenario impact attribution, reconciliation, allocation drift, and concentration alerts.
 - `scenario_analysis.py` — orchestration of dataset-linked scenario calculations and persistence.
@@ -222,6 +228,7 @@ The schema currently defines these tables (some belong to the legacy demo path):
 - `daily_candles` — daily OHLCV observations linked to a dataset.
 - `analysis_metadata` — analysis configuration, selected window, quality/context metadata.
 - `analysis_results` — persisted computed metrics.
+- `optimization_runs`, `optimization_weights`, `optimization_backtests` (migration 4) — illustrative optimized allocations and walk-forward series, stored separately from holdings.
 
 Use parameterized SQL for all values. Preserve foreign keys, unique constraints, checks, and transaction/rollback behavior. Do not make assumptions about a dataset ID (for example, ID `1`) being portable across databases. Inspect available dataset metadata first. When changing schema, update `schema.sql`, initialization/migration logic, database functions, and tests together. Avoid destructive migrations; explain backup and migration steps.
 
@@ -423,3 +430,22 @@ Full details: `docs/HANDOFF_CONV4.md`. Branch `conv4-stress-testing` (from `4892
   - Rate/FX scenarios use **illustrative assumed** sector sensitivities from config unless a source-labelled factor CSV is supplied.
 - **Dataset 1 headline:** NIFTY −10% beta-propagated = −9.18% (₹−10,945), about 4.3× historical 99% one-day VaR. The worst observed NIFTY drawdown replay gives −13.46%.
 - **Next:** Conversation 5 = roadmap Phase 5 optimization (kickoff in `docs/HANDOFF_CONV4.md` §6).
+
+### 2026-11-12 — Conversation 5 (roadmap Phase 5: Portfolio Construction & Optimization)
+
+Full details: `docs/HANDOFF_CONV5.md`. Branch `conv5-optimization` (from `9f0e115`, the unmerged conv4 tip); commits `e882e9d`, `02a7226`, `373e8d0`, plus a docs commit. Not pushed.
+
+- **Tests (actually run):** baseline 219 / 71; final **250 passed / 71 subtests**. No test removed or edited; no new dependency.
+- **Schema v4 (additive):** `optimization_runs`, `optimization_weights`, `optimization_backtests`. Optimized weights are never written to `dataset_holdings`, `holdings` or `config/instruments.json`. Results are stored under `engine_version = phase5_opt_v1`.
+- **Real DB:**
+  - backup `data/backups/portfoliopulse_pre_conv5_optimization_20261112T173719020304Z.db`, plus the migration auto-backup; trial on a copy first;
+  - **analysis run 11** with 7 strategy runs and 2,170 walk-forward rows; rerun idempotent;
+  - all prior tables, schema v1–v3 rows and the Phase-4 hex dump are bit-identical; integrity/FK clean.
+- **Dataset 1 (unverified Yahoo, N = 686):**
+  - **max-Sharpe is undefined** at rf 6%, because the best feasible in-sample E[r] is 1.98%; a labelled rf 0% sensitivity is reported instead;
+  - min-variance lowers ex-ante volatility only from 13.69% to 13.47%;
+  - exact ERC breaches the 40% Banking cap, so a constrained solution is used;
+  - out of sample (2025-01 to 2026-10), every strategy returned about −12% to −16% a year net, vs NIFTY 50 −1.1%.
+  - Mean standard errors of about 12–16% a year dominate. All results are illustrative and in-sample, not recommendations.
+- **Dataset 2** is refused (`InsufficientDataError`, below 252 returns).
+- **Next:** Conversation 6 = dashboard/reporting (kickoff in `docs/HANDOFF_CONV5.md` §7).
