@@ -23,7 +23,7 @@ Scope: presentation and reporting only. No new financial logic, no change to any
 - **DB:**
   - All pre-existing rows (analysis IDs ≤ 10, scenario runs ≤ 18, every `optimization_*` row) and the Phase-4/perf hex dump are bit-identical. Integrity `ok`; FK check empty.
   - **One row was added to the real DB by mistake during test development: `analysis_metadata` 12** (dataset 2, `phase8_perf_v1`, rf 0.06, 95%, 59 results). An early version of the AppTest restored the DB environment variable before a button-click rerun, so that rerun opened the real DB. Opening dataset 2 in the dashboard runs the existing `analyze_saved_dataset`, and that inserted the row.
-  - The row is the same one the dashboard creates whenever a user opens dataset 2 with default settings. No existing row changed. It has **not** been deleted, pending your decision.
+  - The row is the same one the dashboard creates whenever a user opens dataset 2 with default settings. No existing row changed. **User decision (2026-11-12): keep it.**
   - The test now holds the override across reruns and asserts the fixture dataset is selected.
 
 ## 2. What was built
@@ -71,7 +71,7 @@ The roadmap's numbered phases (1–7) are now implemented on stacked, unmerged b
 
 Suggested next steps, in order:
 1. **Review and merge the branch stack** into `main`. Each branch fast-forwards onto the next.
-2. **Decide on analysis 12** (keep or remove) and whether the dashboard should become fully read-only.
+2. Decide whether the dashboard should become fully read-only. (Analysis 12 is kept, per the user.)
 3. **Data decisions carried forward:**
    - the NSE corporate-action file (confirms dataset 1's price basis);
    - the long Angel One pull (a verified long sample);
