@@ -79,6 +79,11 @@ Keep business logic out of the Streamlit presentation layer. Prefer small, testa
 - `portfolio_returns.py` — pure calculations for fixed-quantity portfolio valuation, daily buy-and-hold returns, benchmark alignment, and annualized endpoint price returns.
 - `risk_metrics.py` — risk calculations: cumulative/annualized returns, volatility, Sharpe, drawdown, historical VaR/ES, correlations, covariance, and volatility contributions.
 - `portfolio_analysis.py` — orchestration for loading a saved dataset, computing portfolio/benchmark analytics, creating metadata, and persisting results. Keep it independent of Streamlit.
+- `var_models.py` (Conv 3) — parametric normal, Cornish-Fisher, seeded Monte Carlo (MVN/bootstrap) VaR/ES and delta-normal Euler component VaR/ES; historical reuses `risk_metrics.historical_var_es`.
+- `var_backtests.py` (Conv 3) — rolling one-day-ahead VaR forecasts, Kupiec POF, Christoffersen independence, conditional coverage.
+- `covariance_estimators.py` (Conv 3) — sample, Ledoit-Wolf and EWMA (λ = 0.94) daily covariance.
+- `drawdowns.py` (Conv 3) — drawdown episodes, duration and recovery time.
+- `risk_analysis.py` (Conv 3) — Phase 3 risk orchestration; persists a separate run under `engine_version = phase3_risk_v1` (CLI `scripts/analyze_risk.py`).
 - `scenarios.py` — definitions/generation of broad-market, banking, IT/sector, and individual-holding shocks.
 - `attribution.py` — holding-level scenario impact attribution, reconciliation, allocation drift, and concentration alerts.
 - `scenario_analysis.py` — orchestration of dataset-linked scenario calculations and persistence.
@@ -378,3 +383,21 @@ Full details: `docs/HANDOFF_CONV2.md`. Branch `conv2-foundation-performance-attr
 - Dataset 1 untouched and bit-identical. Tests: 146 passed / 71 subtests.
 - Angel One is **conditionally suitable** as primary: long-window access, corporate-action handling for unadjusted history, and cross-provider comparison are still open (`docs/HANDOFF_CONV2.md` §6.3). Next data step awaiting approval: long Angel pull 2024-01-02 → 2026-10-16 compared with dataset 1 and the NSE sample (§6.4).
 - **Conversation 3 kickoff** (advanced risk engine only; SciPy pin first) is in `docs/HANDOFF_CONV2.md` §7.
+
+### 2026-11-12 — Conversation 3 (roadmap Phase 3: Advanced Risk Engine)
+
+Full details: `docs/HANDOFF_CONV3.md`. Branch `conv3-risk-engine` (from `63b25ed`); commits `6607bed` (SciPy pin), `f647be7` (var_models), `0b31722` (backtests), `16de268` (drawdowns + covariance), `7da37d9` (risk_analysis + CLI), plus a docs commit. Not pushed.
+
+- **Dependency:** `scipy==1.18.1` pinned in `requirements.txt`; no other package changed; `pip check` clean.
+- **Tests (actually run):** baseline 146 passed / 71 subtests; final **192 passed / 71 subtests**. No existing test removed or edited.
+- **Engine:** new outputs only under `engine_version = phase3_risk_v1`, as a separate `analysis_metadata` run; method strings, MC seed/paths/batches and provenance labels live in `settings_json`, and the k tail observations live in `quality_json`. No schema change (still v3). Phase 4 / `phase8_perf_v1` keys and the 20-key `Phase4Analysis.metrics` are unchanged.
+- **Real DB:** backup `data/backups/portfoliopulse_pre_conv3_risk_20261112T165943068479Z.db`, trial on a copy first, then **run 9** for dataset 1 (305 results). All pre-existing rows are bit-identical (hex-float fingerprint), the Phase-4/perf hex dump is identical, and integrity/FK checks are clean. Dataset 2 was smoke-tested with `--no-save` only.
+- **Dataset 1 (unverified Yahoo, N = 686):**
+  - 99% historical VaR 2.127% with k = 7;
+  - normal 2.032%, Cornish-Fisher 2.678%;
+  - MVN MC 2.034% (SE 0.011%), bootstrap 2.191%;
+  - max drawdown −29.5%, unrecovered.
+  - The historical 95% Kupiec test rejects at 5% (33 exceptions vs 21.8 expected).
+  - These are in-sample statistics, not forecasts.
+- **Open:** dataset 1 basis is unconfirmed (an NSE corporate-action file is needed before its tail/drawdown dates are treated as real events); dashboard display of Phase 3 outputs is not done. Next: Conversation 4 = roadmap Phase 4 stress testing (kickoff in `docs/HANDOFF_CONV3.md` §6).
+- Status statement §2 item 2 test counts are superseded by the figures above.
