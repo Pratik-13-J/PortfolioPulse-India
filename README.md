@@ -9,7 +9,7 @@ PortfolioPulse analyses a configurable buy-and-hold portfolio of NSE-listed shar
 | Area | Status |
 |---|---|
 | Portfolio analytics, scenario attribution and dashboard | Implemented; the portfolio uses fixed share quantities and weights drift with prices. |
-| Automated verification | 250 pytest tests and 71 subtests pass locally (2026-11-12, Conversation 5). The tests use deterministic/mock data and hand-checkable examples. |
+| Automated verification | 256 pytest tests and 71 subtests pass locally (2026-11-12, Conversation 6). The tests use deterministic/mock data and hand-checkable examples. |
 | Angel One SmartAPI | Adapter, instrument-master resolution, normalization, retries and offline cache are implemented and mock-tested. The October long-window refresh was denied with HTTP 403 access-rate responses. On 2026-11-12 a controlled 15-day live pull succeeded and is stored as dataset 2 (`verified_live`, unadjusted OHLCV, 66 candles). Long-window live access is not yet re-tested, and dataset 2 is too short for risk statistics. |
 | Dataset currently used for local analysis | A separate Yahoo Finance OHLCV CSV imported through the source-labelled fallback, marked `unadjusted_ohlcv` and user-declared/unverified. It is not Angel One data. |
 | Schema and provenance (Conv 2) | SQLite schema is versioned (`schema_version`, currently 3) with backup-first migrations. Datasets carry a `verification_status` ladder and an append-only provenance-event ledger. `split_adjusted_ohlcv` is now a supported basis; dataset 1 is still labelled `unadjusted_ohlcv` because no NSE corporate-action file has been imported to justify a relabel. |
@@ -18,6 +18,7 @@ PortfolioPulse analyses a configurable buy-and-hold portfolio of NSE-listed shar
 | Advanced risk engine (Conv 3) | Historical, parametric normal, Cornish-Fisher and seeded Monte Carlo (multivariate-normal and bootstrap) one-day VaR/ES at 95% and 99%; Kupiec and Christoffersen backtests; drawdown duration and recovery; sample, Ledoit-Wolf and EWMA (λ = 0.94) covariance; component VaR/ES that reconciles to the total. Stored as a separate run under `engine_version = phase3_risk_v1` (SciPy 1.18.1). Dataset 1 results are in-sample statistics on unverified Yahoo data (N = 686; the 99% historical tail is k = 7 observations), not forecasts. |
 | Stress testing (Conv 4) | Versioned scenario library (`config/stress_scenarios.json`): NIFTY 50 beta-propagated shocks, direct stock/sector shocks, covariance-propagated stock shocks, combined market+sector, and rate/USD-INR sensitivities (illustrative **assumed** sensitivities unless a source-labelled factor CSV is supplied). Historical replays use observed dataset closes for 2024-06-04, 2024-08-05, 2025-04-07 and the dataset's worst NIFTY drawdown; COVID-2020 and 2022 are reported **unavailable** because dataset 1 starts 2024-01-02 (supply an NSE Indices CSV to model-propagate them). Holding, sector and loss-share P&L, plus comparison with VaR/ES, max drawdown and post-stress risk contributions. Stored under `engine_version = phase4_stress_v1`; hypothetical revaluations, not forecasts. |
 | Portfolio construction (Conv 5) | Equal-weight, minimum-variance, maximum-Sharpe, constrained risk parity (ERC) and a 25-point efficient frontier with SciPy SLSQP on Ledoit-Wolf covariance; configurable weight, concentration, sector and turnover limits (`config/optimization.json`); arithmetic, CAGR and Bayes-Stein expected returns; Indian delivery cost model; integer-share allocation with residual cash; walk-forward out-of-sample test (252/21, no look-ahead). Max-Sharpe is reported **undefined** at the 6% risk-free assumption because no feasible portfolio's in-sample mean exceeds it. Stored separately (schema v4 `optimization_*` tables, `engine_version = phase5_opt_v1`); original holdings are never modified. Illustrative, in-sample, five-stock universe; not recommendations. |
+| Dashboard & reporting (Conv 6) | Read-only tabs for the stored risk, stress and optimization runs (Benchmark comparison, VaR & backtests, Stress library, Optimization, gated Attribution, Reports), each labelled with source, verification status and price basis; CSV and self-contained HTML export with a provenance header. `PORTFOLIOPULSE_DB` points the app at a database copy. Streamlit AppTest renders every tab with zero exceptions. |
 | NSE independent validation | Ten displayed official NIFTY 50 price-index closes were compared with the saved provider series within 0.01 index points. The remaining dates and individual stocks are unverified. |
 
 The local analysis record and detailed formulas are in [Phase 3 data and SQL](docs/PHASE_3_DATA_SQL.md), [Phase 4 analytics](docs/PHASE_4_ANALYTICS.md), [Phase 5 stress testing](docs/PHASE_5_STRESS_TESTS.md), [Phase 6 dashboard](docs/PHASE_6_DASHBOARD.md), and [Phase 7 verification](docs/PHASE_7_VERIFICATION.md). The latest [maintenance audit](docs/MAINTENANCE_AUDIT_2026-10-23.md) records the project check and remaining cleanup. The phased scope is in [PROJECT_PLAN.md](PROJECT_PLAN.md).
@@ -71,6 +72,8 @@ portfoliopulse/
   portfolio_evaluation.py      per-portfolio risk/return profile from the risk engine
   optimization_backtest.py     walk-forward out-of-sample validation
   optimization_analysis.py     optimization orchestration and persistence
+  reporting.py                 CSV and HTML reports with a provenance header
+  ui/                          read-only stored-run loaders and Plotly chart builders
   portfolio_analysis.py        dataset-linked analysis orchestration and persistence
   performance_metrics.py       TE, IR, beta, capture, Sortino, rolling, period returns, contributions
   benchmark_attribution.py     gated Active Share, Brinson-Fachler and Carino linking
@@ -190,7 +193,7 @@ Run all automated tests:
 .\.venv\Scripts\python.exe -m pytest -q -p no:cacheprovider
 ```
 
-The current local run (2026-11-12) completed with **250 tests passing and 71 passing subtests**. API tests use mocks; live Angel One historical access remains unverified.
+The current local run (2026-11-12) completed with **256 tests passing and 71 passing subtests**. API tests use mocks; live Angel One historical access remains unverified.
 
 An independent **ten-date spot check** of NIFTY 50 price-index closes for 1–15 October 2026 was completed against values displayed on [NSE Indices historical data](https://www.niftyindices.com/reports/historical-data). All ten provider values were within 0.01 index points; the largest absolute difference was 0.00078125 points. The [reference CSV](docs/reference/nifty50_nse_indices_2026-10-01_2026-10-15.csv) is a transcription of the displayed official table, not an original NSE export. See [Final audit](docs/FINAL_AUDIT.md) for the comparison command and limitations. For a broader comparison, obtain an official NIFTY 50 price-index CSV and follow the checklist in [Phase 7 verification](docs/PHASE_7_VERIFICATION.md).
 

@@ -36,3 +36,20 @@ The risk-contribution chart is the Phase 4 last-matched-date weight/covariance p
 ## Verification record
 
 Phase 5 re-verification before dashboard integration passed all 83 repository tests. The saved Phase 5 run's INR and percentage contributions reconcile across five holdings; SQLite integrity returned `ok` and the foreign-key check returned no rows. Phase 6 passed Python compilation. The local HTTP health probe was blocked by this environment's socket permissions, and the in-process Streamlit runner did not complete within its execution window, so browser-level interaction remains to be checked in the user's local session.
+
+## Conversation 6 update (2026-11-12): engine views and reports
+
+Six tabs were added after the original five, which are unchanged:
+
+- **Benchmark comparison:** Phase 2 relative metrics and rolling TE/beta.
+- **VaR & backtests:** stored `phase3_risk_v1` run; VaR/ES by method with Monte Carlo SE, the k-observation historical tail, Kupiec/Christoffersen tables, drawdown duration and recovery, component VaR/ES.
+- **Stress library:** stored `phase4_stress_v1` run; scenario bars, holding × scenario heatmap, waterfall, shock basis, unavailable scenarios with reasons.
+- **Optimization:** stored `phase5_opt_v1` run; status notices, frontier, comparison, weights, integer-share allocation, walk-forward, trade-offs.
+- **Attribution:** gated message from `attribution_gate`.
+- **Reports:** CSV zip and self-contained HTML, each with a provenance header.
+
+These tabs read stored runs through `portfoliopulse/ui/stored_results.py` (SQLite `mode=ro`) and never recompute or write financial results. Create or refresh runs with `scripts.analyze_risk`, `scripts.analyze_stress` and `scripts.analyze_optimization`.
+
+Set `PORTFOLIOPULSE_DB` to point the app at a copy of the database. Opening a dataset still runs the existing Phase 4 analysis, which can add an `analysis_metadata` row.
+
+Verification: Streamlit `AppTest` renders all 11 tabs with zero exceptions on a fixture DB, an empty DB, and a dataset without stored runs. A manual browser check against a DB copy covered dataset 1. See [Conversation 6 handoff](HANDOFF_CONV6.md).

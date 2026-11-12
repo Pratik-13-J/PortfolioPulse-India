@@ -98,9 +98,10 @@ def frontier(frontier_points: pd.DataFrame, strategies: pd.DataFrame) -> go.Figu
                         hovertemplate="vol %{x:.2%} · E[r] %{y:.2%}<extra>frontier</extra>")
     shown = strategies.dropna(subset=["ex_ante_volatility"])
     for row in shown.itertuples():
-        fig.add_scatter(x=[row.ex_ante_volatility], y=[row.ex_ante_expected_return], mode="markers+text",
-                        name=row.strategy, text=[row.strategy.replace("_", " ")], textposition="top center",
-                        marker=dict(size=11, color=_color(row.strategy, STRATEGY_ORDER),
+        # Markers cluster near the minimum-variance point, so identity comes from the
+        # legend and hover rather than colliding direct labels.
+        fig.add_scatter(x=[row.ex_ante_volatility], y=[row.ex_ante_expected_return], mode="markers",
+                        name=row.strategy, marker=dict(size=11, color=_color(row.strategy, STRATEGY_ORDER),
                                     line=dict(color="#fcfcfb", width=2)),
                         hovertemplate=f"{row.strategy}<br>vol %{{x:.2%}} · E[r] %{{y:.2%}}<extra></extra>")
     return _layout(fig, "Efficient frontier (ex-ante, in-sample, illustrative)", x_title="Annual volatility",

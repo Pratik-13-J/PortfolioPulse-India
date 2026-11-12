@@ -95,6 +95,8 @@ Keep business logic out of the Streamlit presentation layer. Prefer small, testa
 - `portfolio_evaluation.py` (Conv 5) — ex-ante and labelled in-sample metrics for any weight vector, reusing `risk_metrics` / `performance_metrics` / `var_models`.
 - `optimization_backtest.py` (Conv 5) — walk-forward validation without look-ahead, net of costs.
 - `optimization_analysis.py` (Conv 5) — orchestration under `engine_version = phase5_opt_v1`; writes only the migration-4 `optimization_*` tables (CLI `scripts/analyze_optimization.py`).
+- `ui/stored_results.py`, `ui/charts.py` (Conv 6) — read-only (`mode=ro`) loaders for stored engine runs and Plotly chart builders; no financial logic.
+- `reporting.py` (Conv 6) — CSV zip and self-contained HTML reports with a provenance header.
 - `scenarios.py` — definitions/generation of broad-market, banking, IT/sector, and individual-holding shocks.
 - `attribution.py` — holding-level scenario impact attribution, reconciliation, allocation drift, and concentration alerts.
 - `scenario_analysis.py` — orchestration of dataset-linked scenario calculations and persistence.
@@ -449,3 +451,12 @@ Full details: `docs/HANDOFF_CONV5.md`. Branch `conv5-optimization` (from `9f0e11
   - Mean standard errors of about 12–16% a year dominate. All results are illustrative and in-sample, not recommendations.
 - **Dataset 2** is refused (`InsufficientDataError`, below 252 returns).
 - **Next:** Conversation 6 = dashboard/reporting (kickoff in `docs/HANDOFF_CONV5.md` §7).
+
+### 2026-11-12 — Conversation 6 (roadmap Phase 7: Dashboard & Reporting)
+
+Full details: `docs/HANDOFF_CONV6.md`. Branch `conv6-dashboard` (from `c4ca993`, the unmerged conv5 tip); commit `4e037f5` plus a docs/fix commit. Not pushed.
+
+- **Tests (actually run):** baseline 250 / 71; final **256 passed / 71 subtests**. Streamlit `AppTest` renders all 11 tabs with zero exceptions on a fixture DB, an empty DB, and a dataset without runs. A manual browser check against a DB copy found and fixed one label collision.
+- **Design:** the new tabs only read stored `phase3_risk_v1` / `phase4_stress_v1` / `phase5_opt_v1` runs through `mode=ro` connections. The existing five tabs are unchanged. `PORTFOLIOPULSE_DB` overrides the DB path; **tests must hold it across AppTest reruns** (see `tests/test_dashboard.py::_pointed_at`).
+- **DB:** all prior rows are bit-identical. **Analysis 12** (dataset 2, `phase8_perf_v1`, rf 0.06 / 95%) was added to the real DB by an early test rerun that fell back to the default path. It is the same row the dashboard creates when a user opens dataset 2, and has not been deleted, pending the user's decision.
+- **Open:** the existing Performance path still writes Phase 4 runs on load (pre-existing behaviour; making it read-only needs the user's decision); the branch stack conv2→conv6 awaits review and merge; the data decisions carried forward are unchanged.
