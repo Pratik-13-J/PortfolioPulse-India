@@ -18,7 +18,7 @@ REQUIRED_COLUMNS = frozenset({
     "symbol", "date", "open", "high", "low", "close", "volume",
     "source", "retrieved_at_utc", "price_basis", "interval",
 })
-PRICE_BASES = frozenset({"unadjusted_ohlcv", "provider_adjusted_ohlcv"})
+PRICE_BASES = frozenset({"unadjusted_ohlcv", "provider_adjusted_ohlcv", "split_adjusted_ohlcv"})
 NUMERIC_COLUMNS = ("open", "high", "low", "close", "volume")
 
 
@@ -279,3 +279,109 @@ def validate_daily_candles(
         outside_window_rows=outside_window_rows,
         union_dates_count=len(wide),
     )
+
+
+DEFAULT_JUMP_THRESHOLD = 0.35
+DEFAULT_ACTION_WINDOW_DAYS = 3
+JUMP_COLUMNS = (
+    "symbol", "date", "previous_date", "close_return", "near_action",
+    "action_ex_date", "action_type", "message",
+)
+
+
+def corporate_action_jump_warnings(
+    close_grid: pd.DataFrame,
+    *,
+    corporate_actions: pd.DataFrame | None = None,
+    threshold: float = DEFAULT_JUMP_THRESHOLD,
+    window_days: int = DEFAULT_ACTION_WINDOW_DAYS,
+) -> pd.DataFrame:
+    """Warn-only scan for close-to-close jumps that look like corporate actions.
+
+    ``close_grid`` is a date-indexed, symbol-column close grid (may contain
+    NaN). A move with |r| > ``threshold`` between consecutive *observed*
+    closes of one symbol is flagged. When ``corporate_actions`` (columns
+    ``symbol``, ``ex_date``, ``action_type``) is supplied, each flag records the
+    nearest action whose ex-date lies within ``window_days`` calendar days.
+
+    Nothing is changed, dropped or adjusted. A large jump near a split/bonus
+    ex-date suggests the series is unadjusted; *absence* of jumps across known
+    split/bonus ex-dates suggests the provider already adjusted for them. Either
+    reading is evidence for review, not proof of the price basis.
+    """
+    if not isinstance(close_grid, pd.DataFrame) or close_grid.empty:
+        raise DataQualityError("Provide a non-empty close-price grid.")
+    if not isinstance(close_grid.index, pd.DatetimeIndex):
+        raise DataQualityError("The close grid needs a DatetimeIndex.")
+    if isinstance(threshold, (bool, np.bool_)) or not isinstance(threshold, (int, float)) \
+            or not np.isfinite(threshold) or threshold <= 0:
+        raise DataQualityError("threshold must be a positive finite decimal return.")
+    if isinstance(window_days, bool) or not isinstance(window_days, int) or window_days < 0:
+        raise DataQualityError("window_days must be a non-negative integer.")
+    actions = None
+    if corporate_actions is not None:
+        missing = {"symbol", "ex_date", "action_type"} - set(corporate_actions.columns)
+        if missing:
+            raise DataQualityError(f"Corporate actions need columns: {', '.join(sorted(missing))}.")
+        actions = corporate_actions.loc[:, ["symbol", "ex_date", "action_type"]].copy()
+        actions["ex_date"] = pd.to_datetime(actions["ex_date"], format="%Y-%m-%d", errors="raise")
+    rows: list[dict[str, Any]] = []
+    for symbol in close_grid.columns:
+        observed = pd.to_numeric(close_grid[symbol], errors="raise").dropna().sort_index()
+        returns = observed.pct_change(fill_method=None).dropna()
+        flagged = returns[returns.abs() > threshold]
+        for day, value in flagged.items():
+            position = observed.index.get_loc(day)
+            previous = observed.index[position - 1]
+            match = None
+            if actions is not None:
+                candidates = actions.loc[actions["symbol"].eq(symbol)].copy()
+                candidates["distance"] = (candidates["ex_date"] - day).abs().dt.days
+                candidates = candidates.loc[candidates["distance"].le(window_days)]
+                if not candidates.empty:
+                    match = candidates.sort_values(["distance", "ex_date"]).iloc[0]
+            rows.append({
+                "symbol": symbol,
+                "date": day.strftime("%Y-%m-%d"),
+                "previous_date": previous.strftime("%Y-%m-%d"),
+                "close_return": float(value),
+                "near_action": match is not None,
+                "action_ex_date": None if match is None else match["ex_date"].strftime("%Y-%m-%d"),
+                "action_type": None if match is None else str(match["action_type"]),
+                "message": (
+                    f"|close return| above {threshold:.0%}"
+                    + ("" if match is None else f" within {window_days} days of a {match['action_type']} ex-date")
+                    + "; review the price basis (warning only, data unchanged)."
+                ),
+            })
+    return pd.DataFrame(rows, columns=list(JUMP_COLUMNS))
+
+
+def unexplained_action_dates(
+    close_grid: pd.DataFrame,
+    corporate_actions: pd.DataFrame,
+    *,
+    threshold: float = DEFAULT_JUMP_THRESHOLD,
+    window_days: int = DEFAULT_ACTION_WINDOW_DAYS,
+    action_types: Sequence[str] = ("split", "bonus"),
+) -> pd.DataFrame:
+    """List split/bonus ex-dates inside the grid window that show *no* jump.
+
+    For an unadjusted series a 1:1 bonus should halve the close near its
+    ex-date. A quiet ex-date is consistent with provider adjustment. This is
+    the evidence a reviewer cites before relabelling a dataset's basis.
+    """
+    flags = corporate_action_jump_warnings(
+        close_grid, corporate_actions=corporate_actions, threshold=threshold, window_days=window_days,
+    )
+    actions = corporate_actions.loc[corporate_actions["action_type"].isin(list(action_types))].copy()
+    actions["ex_date"] = pd.to_datetime(actions["ex_date"], format="%Y-%m-%d", errors="raise")
+    first, last = close_grid.index.min(), close_grid.index.max()
+    actions = actions.loc[actions["ex_date"].between(first, last) & actions["symbol"].isin(close_grid.columns)]
+    explained = set(zip(flags.loc[flags["near_action"], "symbol"], flags.loc[flags["near_action"], "action_ex_date"]))
+    quiet = [
+        {"symbol": row.symbol, "ex_date": row.ex_date.strftime("%Y-%m-%d"), "action_type": row.action_type}
+        for row in actions.itertuples(index=False)
+        if (row.symbol, row.ex_date.strftime("%Y-%m-%d")) not in explained
+    ]
+    return pd.DataFrame(quiet, columns=["symbol", "ex_date", "action_type"])

@@ -17,3 +17,4 @@ data/incoming/
 data/market/
 logs/
 .streamlit/secrets.toml
+data/backups/

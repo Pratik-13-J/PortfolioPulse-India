@@ -1,3 +1,8 @@
+-- Baseline schema (version 0). Later changes are versioned in
+-- portfoliopulse/migrations.py and applied by database.initialize(); in
+-- particular migration 2 rebuilds candle_datasets to widen price_basis and add
+-- verification_status. Do not edit tables here without a matching migration.
+
 PRAGMA foreign_keys = ON;
 
 CREATE TABLE IF NOT EXISTS instruments (

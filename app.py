@@ -362,6 +362,7 @@ with data_tab:
     adjustment = {
         "unadjusted_ohlcv": "Unadjusted OHLCV · price returns only",
         "provider_adjusted_ohlcv": "Provider-adjusted OHLCV · provider basis; not independently verified",
+        "split_adjusted_ohlcv": "Split/bonus-adjusted OHLCV · not dividend-adjusted; price returns only",
     }.get(analysis.price_basis, analysis.price_basis)
     info_cols = st.columns(4)
     info_cols[0].metric("Data source", analysis.source_name)

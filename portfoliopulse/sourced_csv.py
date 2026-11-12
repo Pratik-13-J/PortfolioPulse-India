@@ -27,7 +27,7 @@ from portfoliopulse.data import AlignedPrices, PriceDataError, align_prices
 CSV_COLUMNS = (
     "symbol", "trading_symbol", "exchange", "date", "open", "high", "low", "close", "volume",
 )
-PRICE_BASES = {"unadjusted_ohlcv", "provider_adjusted_ohlcv"}
+PRICE_BASES = {"unadjusted_ohlcv", "provider_adjusted_ohlcv", "split_adjusted_ohlcv"}
 PROVENANCE_KIND = "user_supplied_csv"
 PROCESSED_ROOT = PROJECT_ROOT / "data" / "processed"
 

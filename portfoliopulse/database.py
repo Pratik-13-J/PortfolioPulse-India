@@ -17,6 +17,9 @@ from portfoliopulse.angelone.instrument_master import ConfiguredInstrument
 from portfoliopulse.config import DB_PATH, PORTFOLIO_NAME, REAL_PORTFOLIO_NAME, SCHEMA_PATH
 from portfoliopulse.data import normalize_observations
 from portfoliopulse.demo import DEMO_INSTRUMENTS, DEMO_SOURCE
+from portfoliopulse.migrations import (
+    PRICE_BASES as _MIGRATED_PRICE_BASES, VERIFICATION_STATUSES, derive_verification_status, run_migrations,
+)
 
 
 def connect(path: Path = DB_PATH) -> sqlite3.Connection:
@@ -50,6 +53,9 @@ def initialize(path: Path = DB_PATH) -> None:
                        WHERE d.dataset_id=daily_candles.dataset_id)
                    WHERE retrieved_at_utc IS NULL"""
             )
+    # Versioned migrations (see migrations.py) bring any baseline database to
+    # the latest schema, taking a timestamped backup first when data exists.
+    run_migrations(path)
 
 
 def load_observations(frame: pd.DataFrame, source: str, path: Path = DB_PATH) -> int:
@@ -188,7 +194,7 @@ def seed_instruments(path: Path = DB_PATH) -> None:
 
 
 _CANDLE_COLUMNS = ("symbol", "trading_symbol", "exchange", "date", "open", "high", "low", "close", "volume")
-_PRICE_BASES = frozenset({"unadjusted_ohlcv", "provider_adjusted_ohlcv"})
+_PRICE_BASES = frozenset(_MIGRATED_PRICE_BASES)
 _SAFE_METADATA_KEYS = (
     "source_name", "source", "source_url", "provenance_kind", "provenance_status",
     "retrieved_at_utc", "price_basis", "interval", "start", "end_exclusive",
@@ -552,14 +558,16 @@ def import_candle_dataset(
                 portfolio_id,dataset_key,candles_sha256,source_name,source_url,
                 provenance_kind,provenance_status,retrieved_at_utc,price_basis,interval,
                 window_start,window_end_exclusive,input_csv_sha256,candle_count,
-                aligned_price_dates,valid_daily_return_dates,incomplete_union_dates,metadata_json
-            ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                aligned_price_dates,valid_daily_return_dates,incomplete_union_dates,metadata_json,
+                verification_status
+            ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (portfolio_id, key, candle_hash, safe["source_name"], safe.get("source_url"),
              safe["provenance_kind"], safe["provenance_status"], safe["retrieved_at_utc"],
              safe["price_basis"], safe["interval"], safe["start"], safe["end_exclusive"],
              safe.get("input_csv_sha256"), len(rows), safe.get("aligned_price_dates"),
              safe.get("valid_daily_return_dates"), safe.get("incomplete_union_dates"),
-             json.dumps(safe, sort_keys=True, allow_nan=False)),
+             json.dumps(safe, sort_keys=True, allow_nan=False),
+             derive_verification_status(safe["provenance_kind"], safe["provenance_status"])),
         )
         dataset_id = int(cursor.lastrowid)
         con.executemany(
@@ -746,3 +754,100 @@ def save_analysis_run(
         )
         _replace_analysis_results(con, analysis_id, rows)
         return analysis_id
+
+
+# --- Provenance ledger (migration 1/2) ---------------------------------------
+
+def list_provenance_events(dataset_id: int, *, path: Path = DB_PATH) -> list[dict[str, Any]]:
+    """Return the append-only provenance history for one candle dataset."""
+    with session(path) as con:
+        rows = con.execute(
+            """SELECT event_id,dataset_id,event_type,field_name,old_value,new_value,
+                      reference_dataset_id,evidence_json,recorded_at_utc
+               FROM dataset_provenance_events WHERE dataset_id=? ORDER BY event_id""", (dataset_id,),
+        ).fetchall()
+    result = []
+    for row in rows:
+        item = dict(row)
+        item["evidence"] = json.loads(item.pop("evidence_json"))
+        result.append(item)
+    return result
+
+
+def record_provenance_note(
+    dataset_id: int, note: str, *, evidence: Mapping[str, Any] | None = None, path: Path = DB_PATH,
+) -> int:
+    """Append a free-text review note; never changes the dataset's labels."""
+    if not isinstance(note, str) or not note.strip():
+        raise ValueError("A provenance note must be non-empty text.")
+    payload = json.dumps(dict(evidence or {}), sort_keys=True, allow_nan=False)
+    with session(path) as con:
+        if con.execute("SELECT 1 FROM candle_datasets WHERE dataset_id=?", (dataset_id,)).fetchone() is None:
+            raise ValueError(f"Unknown candle dataset ID: {dataset_id}.")
+        cursor = con.execute(
+            """INSERT INTO dataset_provenance_events(dataset_id,event_type,new_value,evidence_json)
+               VALUES(?, 'note', ?, ?)""", (dataset_id, note.strip(), payload),
+        )
+        return int(cursor.lastrowid)
+
+
+def relabel_price_basis(
+    dataset_id: int, new_basis: str, *, reference_dataset_id: int,
+    evidence: Mapping[str, Any], path: Path = DB_PATH,
+) -> int:
+    """Change a dataset's declared price basis with an auditable event.
+
+    Candles are never rewritten. The original declaration remains in
+    ``metadata_json`` and the event records old value, new value and the
+    corporate-action reference dataset that justified the change.
+    """
+    if new_basis not in _PRICE_BASES:
+        raise ValueError("Unsupported price basis.")
+    if not isinstance(evidence, Mapping) or not evidence:
+        raise ValueError("A price-basis relabel needs explicit evidence.")
+    payload = json.dumps(dict(evidence), sort_keys=True, allow_nan=False)
+    with session(path) as con:
+        row = con.execute("SELECT price_basis FROM candle_datasets WHERE dataset_id=?", (dataset_id,)).fetchone()
+        if row is None:
+            raise ValueError(f"Unknown candle dataset ID: {dataset_id}.")
+        reference = con.execute(
+            "SELECT kind FROM reference_datasets WHERE reference_dataset_id=?", (reference_dataset_id,),
+        ).fetchone()
+        if reference is None or reference["kind"] != "corporate_actions":
+            raise ValueError("A price-basis relabel must cite an imported corporate-action reference dataset.")
+        if row["price_basis"] == new_basis:
+            raise ValueError("The dataset already has that price basis.")
+        con.execute("UPDATE candle_datasets SET price_basis=? WHERE dataset_id=?", (new_basis, dataset_id))
+        cursor = con.execute(
+            """INSERT INTO dataset_provenance_events(dataset_id,event_type,field_name,old_value,new_value,
+                   reference_dataset_id,evidence_json)
+               VALUES(?, 'price_basis_relabel', 'price_basis', ?, ?, ?, ?)""",
+            (dataset_id, row["price_basis"], new_basis, reference_dataset_id, payload),
+        )
+        return int(cursor.lastrowid)
+
+
+def set_verification_status(
+    dataset_id: int, status: str, *, evidence: Mapping[str, Any], path: Path = DB_PATH,
+) -> int:
+    """Move a dataset along the verification ladder with recorded evidence."""
+    if status not in VERIFICATION_STATUSES:
+        raise ValueError("Unsupported verification status.")
+    if not isinstance(evidence, Mapping) or not evidence:
+        raise ValueError("A verification change needs explicit evidence.")
+    payload = json.dumps(dict(evidence), sort_keys=True, allow_nan=False)
+    with session(path) as con:
+        row = con.execute(
+            "SELECT provenance_kind, verification_status FROM candle_datasets WHERE dataset_id=?", (dataset_id,),
+        ).fetchone()
+        if row is None:
+            raise ValueError(f"Unknown candle dataset ID: {dataset_id}.")
+        if status == "verified_live" and row["provenance_kind"] != "angel_one_smartapi":
+            raise ValueError("Only an Angel One broker retrieval can be marked verified_live.")
+        con.execute("UPDATE candle_datasets SET verification_status=? WHERE dataset_id=?", (status, dataset_id))
+        cursor = con.execute(
+            """INSERT INTO dataset_provenance_events(dataset_id,event_type,field_name,old_value,new_value,evidence_json)
+               VALUES(?, 'verification_status_change', 'verification_status', ?, ?, ?)""",
+            (dataset_id, row["verification_status"], status, payload),
+        )
+        return int(cursor.lastrowid)
