@@ -17,7 +17,7 @@ Dataset 1 opens by default. Keep [ARCHITECTURE_GUIDE.md](ARCHITECTURE_GUIDE.md) 
 | 3:30–4:30 | **Stress library** | "Each holding's shock is tagged direct, beta-propagated, covariance-propagated, factor or historical. NIFTY −10% costs 9.2% through betas. A −20% shock to ICICIBANK alone costs 5.8%, but 10.5% once correlated names move with it. The rate/FX sensitivities are labelled as illustrative assumptions. COVID-2020 is shown as unavailable, because I never fill in index moves from memory." |
 | 4:30–5:30 | **Optimization** | "Min-variance, max-Sharpe, risk parity and the frontier, under 5–35% stock caps and a 40% Banking cap. Max-Sharpe is reported as **undefined**, because no feasible portfolio beats the 6% risk-free rate. Forcing an answer would be meaningless. Walk-forward: no weighting rescued five stocks that lagged the index by about 12 points a year." |
 | 5:30–6:15 | **Attribution** | "Brinson-Fachler is implemented and hand-verified, but real attribution needs NIFTY constituent weights, which I don't have. So it's gated, and this is a clearly labelled synthetic example: allocation + selection + interaction = active return." |
-| 6:15–7:00 | ARCHITECTURE_GUIDE diagram, then **Reports** | "Pure calculation modules, orchestrators that store versioned runs in SQLite, and a read-only dashboard. 280+ tests with hand-calculated fixtures, and CI on GitHub Actions. Every report starts with a provenance header." |
+| 6:15–7:00 | ARCHITECTURE_GUIDE diagram, then **Reports** | "Pure calculation modules, orchestrators that store versioned runs in SQLite, and a read-only dashboard. 286 tests with hand-calculated fixtures, and CI on GitHub Actions. Every report starts with a provenance header." |
 
 ## One technical challenge to explain
 

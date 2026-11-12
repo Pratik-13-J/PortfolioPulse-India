@@ -1,4 +1,4 @@
-# Financial Methodology Audit — PortfolioPulse India v1.0 (2026-11-13)
+# Financial Methodology Audit (2026-11-13)
 
 **Scope.** Every implemented performance, attribution, risk, VaR/CVaR, backtesting, stress and optimization methodology.
 
@@ -38,7 +38,7 @@
 | Beta, downside beta | same | Verified | Hand sample cov/var; downside uses b < 0 days; SciPy `linregress` matches the OLS beta in the stress module | — | No action | Needs ≥ 2 down days, else `None` |
 | Up/down capture | `capture_ratios` | Verified | Hand: (√(1.01·1.03) − 1)/(√(1.005·1.02) − 1), etc. | — | No action | Geometric definition; `None` with no down days |
 | Rolling beta / TE | `rolling_relative_metrics` | Verified | Existing fixture | — | No action | — |
-| Treynor ratio | — | Not implemented | — | Not part of the approved roadmap | No action | — |
+| Treynor ratio | — | Not implemented | — | Outside the project scope | No action | — |
 | Benchmark definition | all modules | Verified | `audit_consistency`: same dates, same NIFTY 50 price-index series | — | No action | **Price index, not TRI** |
 
 ## 3. Brinson attribution
@@ -47,7 +47,7 @@
 |---|---|---|---|---|---|---|
 | Brinson-Fachler A/S/I | `benchmark_attribution.brinson_fachler` | Verified (formula) / **Data gated** (real data) | Hand 3-sector example: R_b = .059, R_p = .068; A, S, I per sector computed by hand; A + S + I = .009 | — | No action | No NIFTY 50 constituent weights exist, so `attribution_gate` refuses. Nothing is computed on real data; weights are never fabricated |
 | Missing-sector conventions | same | Verified | Sector not held: R_p,s := R_b,s; off-benchmark sector: R_b,s := R_b (whole effect is interaction, e.g. 0.3·(0.12 − 0.04)); zero-weight position contributes 0 | — | No action | Documented in the module |
-| Brinson-Hood-Beebower | — | Not implemented | Identity tested: total BF allocation = total BHB allocation (Σ(w_p − w_b) = 0), so only the sector split differs | BF chosen in the roadmap | No action | — |
+| Brinson-Hood-Beebower | — | Not implemented | Identity tested: total BF allocation = total BHB allocation (Σ(w_p − w_b) = 0), so only the sector split differs | Brinson-Fachler chosen instead | No action | — |
 | Carino multi-period linking | `carino_link` | Verified | Hand k-factor recomputation; linked total = ∏(1+R_p) − ∏(1+R_b) | — | No action | — |
 | Active Share | `active_share` | Verified | Hand: ½(.1 + .1 + .2) = .2 | — | No action | Data gated on real weights |
 
@@ -79,7 +79,7 @@
 | Volatility RC = w_i(Σw)_i/σ_p | `optimization.risk_contributions`, `risk_metrics.volatility_contributions` | Verified | Hand: Σ = [[.04, .01], [.01, .09]], w = (.6, .4) → Σw = (.028, .042), σ_p = √.0336; ΣRC = σ_p | — | No action | Current-weight proxy ≠ realised drifting-weight volatility (labelled) |
 | Component VaR/ES (Euler) | `var_models.delta_normal_components` | Verified | Hand 2-asset example; finite-difference gradient; stored components sum to totals for 3 estimators × 2 levels | Kept separate from volatility contributions | No action | Delta-normal |
 | MC component ES | `monte_carlo` | Verified | Stored components sum to the MC ES | — | No action | — |
-| Sector risk contribution / diversification benefit | — | Not implemented | — | Derivable by summing components; not in the roadmap | No action | — |
+| Sector risk contribution / diversification benefit | — | Not implemented | — | Derivable by summing components; outside the project scope | No action | — |
 
 ## 7. Stress testing
 
@@ -114,5 +114,5 @@
 | Dashboard shows the stored engine outputs | Verified | Loaders reproduce engine values exactly (tests); live check of runs 9/10/11 |
 | Dashboard default dataset | **Defect found (integration)** | It opened on dataset 2 (no stored runs), leaving the engine tabs empty |
 | | **Fixed** | `ui.stored_results.default_dataset_index` now prefers the most recent dataset with stored runs; regression test added |
-| No dashboard writes, no duplicate runs | Verified | AppTest against an OS read-only DB file (SHA-256 and mtime unchanged); no duplicate Conv 3–5 runs |
+| No dashboard writes, no duplicate runs | Verified | AppTest against an OS read-only DB file (SHA-256 and mtime unchanged); no duplicate risk, stress or optimization runs |
 | Reports | Verified | HTML escaping, provenance header and CSV zip tests; manual export from a clean venv |

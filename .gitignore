@@ -18,3 +18,8 @@ data/market/
 logs/
 .streamlit/secrets.toml
 data/backups/
+
+# Local working notes and agent instructions (kept on disk, not published)
+CLAUDE.md
+local_notes/
+.claude/
