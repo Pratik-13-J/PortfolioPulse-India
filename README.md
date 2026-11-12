@@ -1,228 +1,212 @@
-# PortfolioPulse India
+# PortfolioPulse India — Version 1.0
 
-**An Indian equity portfolio risk monitor built with Python, pandas, NumPy, SQLite, Streamlit and Plotly.**
+**Indian equity portfolio analytics and risk monitoring with Python, pandas, NumPy, SciPy, SQLite, Streamlit and Plotly.**
 
-PortfolioPulse analyses a configurable buy-and-hold portfolio of NSE-listed shares in INR, compares its price performance with the NIFTY 50 price index, and explores transparent hypothetical stress scenarios. It is an educational analytics project for an asset-allocation internship portfolio; it is not investment advice or a trading system.
+## 1. Project overview
 
-## Project status
+PortfolioPulse India analyses a configurable **buy-and-hold** portfolio of NSE-listed shares in INR against the **NIFTY 50 price index**. It measures performance, benchmark-relative behaviour, risk (VaR/CVaR with backtests), hypothetical and historical stress scenarios, and illustrative portfolio construction. Every number is shown with its data source, verification status and price basis.
 
-| Area | Status |
+It is an **educational analytics project**. It is not investment advice, a trading system, a forecasting tool or a production portfolio-management platform.
+
+The configured example universe is RELIANCE, HDFCBANK, INFY, ICICIBANK and ITC (four sectors), with NIFTY 50 as the benchmark ([config/instruments.json](config/instruments.json)). Quantities and target weights are illustrative. Share quantities stay fixed, and market weights drift with prices.
+
+## 2. Key features
+
+| Area | What is implemented |
 |---|---|
-| Portfolio analytics, scenario attribution and dashboard | Implemented; the portfolio uses fixed share quantities and weights drift with prices. |
-| Automated verification | 265 pytest tests and 71 subtests pass locally (2026-11-13). The tests use deterministic/mock data and hand-checkable examples. |
-| Angel One SmartAPI | Adapter, instrument-master resolution, normalization, retries and offline cache are implemented and mock-tested. The October long-window refresh was denied with HTTP 403 access-rate responses. On 2026-11-12 a controlled 15-day live pull succeeded and is stored as dataset 2 (`verified_live`, unadjusted OHLCV, 66 candles). Long-window live access is not yet re-tested, and dataset 2 is too short for risk statistics. |
-| Dataset currently used for local analysis | A separate Yahoo Finance OHLCV CSV imported through the source-labelled fallback, marked `unadjusted_ohlcv` and user-declared/unverified. It is not Angel One data. |
-| Schema and provenance (Conv 2) | SQLite schema is versioned (`schema_version`, currently 3) with backup-first migrations. Datasets carry a `verification_status` ladder and an append-only provenance-event ledger. `split_adjusted_ohlcv` is now a supported basis; dataset 1 is still labelled `unadjusted_ohlcv` because no NSE corporate-action file has been imported to justify a relabel. |
-| Relative performance (Conv 2) | Tracking error, information ratio, beta, downside beta, up/down capture, Sortino, rolling windows, period returns and Carino-linked security contributions, stored under `engine_version = phase8_perf_v1`. |
-| Benchmark attribution (Conv 2) | Active Share and Brinson-Fachler with Carino linking are implemented and fixture-tested only. They are **gated**: no valid NIFTY 50 constituent weights have been imported, so no attribution is calculated or shown. |
-| Advanced risk engine (Conv 3) | Historical, parametric normal, Cornish-Fisher and seeded Monte Carlo (multivariate-normal and bootstrap) one-day VaR/ES at 95% and 99%; Kupiec and Christoffersen backtests; drawdown duration and recovery; sample, Ledoit-Wolf and EWMA (λ = 0.94) covariance; component VaR/ES that reconciles to the total. Stored as a separate run under `engine_version = phase3_risk_v1` (SciPy 1.18.1). Dataset 1 results are in-sample statistics on unverified Yahoo data (N = 686; the 99% historical tail is k = 7 observations), not forecasts. |
-| Stress testing (Conv 4) | Versioned scenario library (`config/stress_scenarios.json`): NIFTY 50 beta-propagated shocks, direct stock/sector shocks, covariance-propagated stock shocks, combined market+sector, and rate/USD-INR sensitivities (illustrative **assumed** sensitivities unless a source-labelled factor CSV is supplied). Historical replays use observed dataset closes for 2024-06-04, 2024-08-05, 2025-04-07 and the dataset's worst NIFTY drawdown; COVID-2020 and 2022 are reported **unavailable** because dataset 1 starts 2024-01-02 (supply an NSE Indices CSV to model-propagate them). Holding, sector and loss-share P&L, plus comparison with VaR/ES, max drawdown and post-stress risk contributions. Stored under `engine_version = phase4_stress_v1`; hypothetical revaluations, not forecasts. |
-| Portfolio construction (Conv 5) | Equal-weight, minimum-variance, maximum-Sharpe, constrained risk parity (ERC) and a 25-point efficient frontier with SciPy SLSQP on Ledoit-Wolf covariance; configurable weight, concentration, sector and turnover limits (`config/optimization.json`); arithmetic, CAGR and Bayes-Stein expected returns; Indian delivery cost model; integer-share allocation with residual cash; walk-forward out-of-sample test (252/21, no look-ahead). Max-Sharpe is reported **undefined** at the 6% risk-free assumption because no feasible portfolio's in-sample mean exceeds it. Stored separately (schema v4 `optimization_*` tables, `engine_version = phase5_opt_v1`); original holdings are never modified. Illustrative, in-sample, five-stock universe; not recommendations. |
-| Dashboard & reporting (Conv 6) | Read-only tabs for the stored risk, stress and optimization runs (Benchmark comparison, VaR & backtests, Stress library, Optimization, gated Attribution, Reports), each labelled with source, verification status and price basis; CSV and self-contained HTML export with a provenance header. The whole dashboard is **read-only**: SQLite `mode=ro`, no schema initialization, analytics computed in memory and never saved (use the `scripts/` CLIs to ingest or persist). `PORTFOLIOPULSE_DB` points the app at another database file. Streamlit AppTest renders every tab with zero exceptions against an OS-level read-only DB file. |
-| NSE independent validation | Ten displayed official NIFTY 50 price-index closes were compared with the saved provider series within 0.01 index points. The remaining dates and individual stocks are unverified. |
+| Data | Angel One SmartAPI adapter (live-verified for a 15-day window); source-labelled CSV import with SHA-256 sidecars; OHLCV quality validation (no forward-fill); immutable dataset/holding snapshots; versioned, backup-first schema migrations; provenance ledger with a verification-status ladder |
+| Performance | Buy-and-hold valuation and daily returns, cumulative and endpoint-annualized price return, volatility, Sharpe, Sortino, maximum drawdown with duration/recovery, period returns, Carino-linked security contributions |
+| Benchmark | Tracking error, information ratio, beta, downside beta, geometric up/down capture, rolling 63/126/252-day TE and beta |
+| Attribution | Active Share and Brinson-Fachler with Carino linking, fixture-tested and **gated** until real NIFTY 50 constituent weights are imported |
+| Risk (engine `phase3_risk_v1`) | Historical, normal, Cornish-Fisher and seeded Monte Carlo (multivariate-normal and bootstrap) one-day VaR/ES at 95%/99%; Kupiec and Christoffersen backtests; sample, Ledoit-Wolf and EWMA covariance; Euler component VaR/ES and volatility contributions |
+| Stress (engine `phase4_stress_v1`) | Versioned scenario library: NIFTY beta-propagated shocks, direct stock/sector shocks, covariance-propagated shocks, combined market+sector, rate/USD-INR sensitivities (illustrative assumed values unless a sourced factor file is supplied), historical event replay from observed closes |
+| Optimization (engine `phase5_opt_v1`) | Equal weight, minimum variance, maximum Sharpe, constrained risk parity (ERC), 25-point efficient frontier; weight, concentration, sector and turnover constraints; Indian delivery cost model; integer-share allocation; walk-forward out-of-sample test |
+| Corporate actions | NSE Corporate Actions CSV converter, ex-date evidence classifier and dataset-version builder (awaiting the official NSE file) |
+| Dashboard | Read-only Streamlit app with 11 tabs, Plotly charts, CSV/HTML report export |
 
-The local analysis record and detailed formulas are in [Phase 3 data and SQL](docs/PHASE_3_DATA_SQL.md), [Phase 4 analytics](docs/PHASE_4_ANALYTICS.md), [Phase 5 stress testing](docs/PHASE_5_STRESS_TESTS.md), [Phase 6 dashboard](docs/PHASE_6_DASHBOARD.md), and [Phase 7 verification](docs/PHASE_7_VERIFICATION.md). The latest [maintenance audit](docs/MAINTENANCE_AUDIT_2026-10-23.md) records the project check and remaining cleanup. The phased scope is in [PROJECT_PLAN.md](PROJECT_PLAN.md).
-
-## What it does
-
-- Ingests daily Angel One SmartAPI OHLCV candles for configured NSE instruments, resolving symbols against the current instrument master instead of assuming broker tokens.
-- Offers a separate, provenance-labelled CSV import path for offline/fallback analysis. Provider, date window, retrieval, file checksum and adjustment basis are recorded with each dataset.
-- Validates candles, duplicate symbol/date observations, price relationships, date coverage and missingness; missing prices are not forward-filled or replaced with zero.
-- Stores source-specific datasets and immutable portfolio snapshots in SQLite, so a later holding-configuration change does not rewrite old analyses.
-- Calculates buy-and-hold returns, annualized return and volatility, Sharpe ratio, maximum drawdown, historical one-day VaR and expected shortfall, correlations and volatility contributions.
-- Models configurable broad-market, banking, IT, sector and individual-stock shocks, with holding-level INR and portfolio-percentage attribution that reconciles to the scenario total.
-- Displays results and data-quality context in a Streamlit/Plotly dashboard, with editable session-only target weights and a rule-based briefing from computed metrics.
-
-## Example portfolio and conventions
-
-The configured example uses RELIANCE, HDFCBANK, INFY, ICICIBANK and ITC, with NIFTY 50 as a separate benchmark. Quantities and target weights are examples in [config/instruments.json](config/instruments.json); they are not a recommendation. The selected portfolio model is **buy and hold**: share quantities stay fixed, current market weights drift, and target weights are only a reference for allocation-drift alerts.
-
-The default INR annual risk-free assumption is configurable in the dashboard/analysis command. The example `6%` value is illustrative and is not fetched from RBI. Analytics use 252 trading days. Annualized return uses the observed first-to-last price ratio raised to `252 / observed date intervals`; daily volatility and Sharpe use sample standard deviation (`ddof=1`) annualized by `sqrt(252)`. Sharpe converts the annual effective risk-free assumption to an effective daily rate. Historical VaR/ES use the nearest-rank worst `ceil((1-confidence) × N)` daily returns.
-
-Scenario outputs are **hypothetical one-period sensitivities**, not predictions or historically calibrated forecasts. Portfolio and NIFTY daily comparisons use matching valid dates. Missing observations remain visible and returns touching missing prices are excluded from the paired sample.
-
-### Price adjustment and benchmark
-
-The configured benchmark is **NIFTY 50 price index**, not NIFTY 50 TRI. The currently used local fallback is provider OHLCV labelled `unadjusted_ohlcv`; price returns from those closes are not dividend-aware total returns. The pipeline records the adjustment basis and does not infer one. Corporate actions, dividend treatment, data coverage and provider differences can affect historical results. Do not compare price-index returns with a total-return benchmark as if the conventions matched.
-
-## Architecture
+## 3. System architecture
 
 ```text
-app.py                         Streamlit controls, charts and presentation
-portfoliopulse/
-  angelone/                    SmartAPI auth, instrument lookup, candle normalization/cache
-  data_quality.py              OHLCV and date-coverage validation
-  sourced_csv.py               independent source-labelled CSV import
-  database.py + schema.sql     parameterized SQLite access and schema
-  portfolio_returns.py         fixed-quantity price returns and alignment
-  risk_metrics.py              risk formulas and volatility contributions
-  var_models.py                normal, Cornish-Fisher, Monte Carlo and component VaR/ES
-  var_backtests.py             rolling VaR forecasts, Kupiec POF, Christoffersen
-  covariance_estimators.py     sample, Ledoit-Wolf and EWMA covariance
-  drawdowns.py                 drawdown episodes, duration and recovery time
-  risk_analysis.py             Phase 3 risk-engine orchestration and persistence
-  factor_sensitivities.py      OLS betas and rate/FX sensitivities with standard errors
-  stress_scenarios.py          shock vectors: direct, beta-, covariance- and factor-propagated
-  historical_stress.py         historical event replay from observed closes
-  stress_impact.py             stressed P&L, sector impact and risk integration
-  stress_analysis.py           stress-testing orchestration and persistence
-  expected_returns.py          arithmetic, CAGR and Bayes-Stein expected returns
-  optimization.py              constrained min-variance, max-Sharpe, ERC and frontier
-  portfolio_allocation.py      transaction costs, turnover and integer-share allocation
-  portfolio_evaluation.py      per-portfolio risk/return profile from the risk engine
-  optimization_backtest.py     walk-forward out-of-sample validation
-  optimization_analysis.py     optimization orchestration and persistence
-  reporting.py                 CSV and HTML reports with a provenance header
-  ui/                          read-only stored-run loaders and Plotly chart builders
-  portfolio_analysis.py        dataset-linked analysis orchestration and persistence
-  performance_metrics.py       TE, IR, beta, capture, Sortino, rolling, period returns, contributions
-  benchmark_attribution.py     gated Active Share, Brinson-Fachler and Carino linking
-  migrations.py                versioned, idempotent, backup-first schema migrations
-  reference_data.py            SHA-256-sidecar importers: corporate actions, constituents
-  providers/                   provider protocol over the Angel One, CSV and Yahoo modules
-  scenarios.py + attribution.py hypothetical shock generation and reconciliation
-  briefing.py                  deterministic text from computed metrics
-scripts/                       refresh, import, analysis and source-comparison commands
-tests/                          deterministic unit and integration checks
-docs/                           methodology, phase verification and interview notes
-data/                           local database, source data and reports (ignored by Git)
+config/ ──► portfoliopulse (pure calculations) ──► orchestration ──► SQLite (data/portfoliopulse.db)
+                                                        ▲                       │ read-only (mode=ro)
+scripts/ (CLI: ingest, analyze, stress, optimize) ──────┘                       ▼
+                                                              app.py + portfoliopulse/ui (Streamlit)
 ```
 
-SQLite separates older demo observations from source-specific `candle_datasets`. Each saved dataset has its own `daily_candles`, `dataset_holdings` snapshot and source metadata. `analysis_metadata` and `analysis_results` retain selected windows, settings, quality details and results; `scenario_runs` and `scenario_contributions` preserve hypothetical shock settings and holding attribution. Foreign keys, unique keys and checks constrain identities, dates and values; database writes use transactions.
+1. **Ingestion and validation:** `angelone/`, `sourced_csv.py`, `data_quality.py`, `reference_data.py`, `nse_corporate_actions.py`.
+2. **Persistence:** `database.py`, `schema.sql` (baseline) and `migrations.py` (v1–v4).
+3. **Pure calculations:** `portfolio_returns.py`, `risk_metrics.py`, `performance_metrics.py`, `var_models.py`, `var_backtests.py`, `covariance_estimators.py`, `drawdowns.py`, `factor_sensitivities.py`, `stress_scenarios.py`, `historical_stress.py`, `stress_impact.py`, `expected_returns.py`, `optimization.py`, `portfolio_allocation.py`, `portfolio_evaluation.py`, `optimization_backtest.py`, `benchmark_attribution.py`, `attribution.py`, `scenarios.py`.
+4. **Orchestration:** `portfolio_analysis.py`, `risk_analysis.py`, `stress_analysis.py`, `optimization_analysis.py`, `price_basis_versioning.py`. Each records an `engine_version` and its settings.
+5. **Presentation:** `app.py`, `portfoliopulse/ui/` (stored-run loaders, charts), `reporting.py`.
 
-## Screenshots
+Business logic lives in the tested modules; `app.py` only displays results. The scripts in `scripts/` are the only path that writes analysis results to the database.
 
-Add reviewed screenshots here before publishing the repository. Use sanitized data only; never include credentials, account identifiers or private portfolio values.
+## 4. Technology stack
 
-- **Dashboard overview:** `[screenshot placeholder — save as docs/screenshots/dashboard-overview.png]`
-- **Performance and risk charts:** `[screenshot placeholder — save as docs/screenshots/performance-risk.png]`
-- **Stress test and holding attribution:** `[screenshot placeholder — save as docs/screenshots/stress-test.png]`
+- **Language:** Python 3.12 (verified 3.12.10 on Windows 11).
+- **Libraries, pinned in `requirements.txt`:** numpy 2.5.4, pandas 3.0.6, scipy 1.18.1, streamlit 1.66.0, plotly 7.1.0, yfinance 1.7.0, smartapi-python 1.5.5, pyotp, python-dotenv, logzero and websocket-client. pytest 9.1.1 is in `requirements-dev.txt`.
+- **Storage:** SQLite through the Python standard library; no database server is needed.
 
-## Installation and run (Windows PowerShell)
+## 5. Project directory structure
 
-Requires Python 3.12 for the verified local setup. From the repository root:
+```text
+app.py                      Streamlit dashboard (read-only)
+config/                     instruments.json, stress_scenarios.json, optimization.json
+portfoliopulse/             analytics package (see §3); ui/ and angelone/ subpackages
+scripts/                    command-line workflows (ingest, analyze_*, corporate_actions, audit_consistency, ...)
+tests/                      unit, integration, financial-audit and dashboard (AppTest) tests
+docs/                       methodology, phase records, handoffs, FINANCIAL_METHODOLOGY_AUDIT.md, HANDOFF_FINAL.md
+data/                       local database, inputs, backups and reports (git-ignored, except a synthetic demo file)
+requirements*.txt, .env.example, CLAUDE.md, PROJECT_PLAN.md
+```
+
+## 6. Database and data provenance
+
+The SQLite database is `data/portfoliopulse.db`, schema version 4. Its main tables:
+- `candle_datasets` with `daily_candles` and `dataset_holdings`: one immutable snapshot per dataset.
+- `analysis_metadata` with `analysis_results`: one row per engine run, with settings and quality JSON.
+- `scenario_runs` with `scenario_contributions`: stress results.
+- `optimization_runs`, `optimization_weights` and `optimization_backtests`: illustrative allocations, never written to the holdings.
+- `reference_datasets`, `corporate_actions` and `dataset_provenance_events`: reference data and the audit trail.
+
+The local datasets:
+
+| Dataset | Source | Status | Use |
+|---|---|---|---|
+| 1 | Yahoo Finance via yfinance 1.7.0 (CSV import), 2024-01-02 → 2026-10-15, 686 valid returns | `user_declared_unverified`; labelled `unadjusted_ohlcv` (see limitations) | Main analysis sample: stored runs 9 (risk), 10 (stress), 11 (optimization) |
+| 2 | Angel One SmartAPI live pull, 2026-10-29 → 2026-11-12, 10 returns | `verified_live`, unadjusted | Smoke tests only; too short for tail statistics or optimization |
+
+Provenance rules:
+- Source, price basis and verification status travel with every result.
+- Missing prices are never filled.
+- Comparisons are **price return vs NIFTY 50 price index (not TRI)**.
+- A ten-date NIFTY 50 spot check against NSE Indices matched within 0.01 index points ([docs/FINAL_AUDIT.md](docs/FINAL_AUDIT.md)).
+
+## 7. Installation (Windows PowerShell)
+
+Prerequisite: Python 3.12 (`python --version`). From the repository folder:
 
 ```powershell
-New-Item -ItemType Directory -Force .tmp | Out-Null
-$env:TEMP = (Resolve-Path .tmp).Path
-$env:TMP = $env:TEMP
 python -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+.\.venv\Scripts\python.exe -m pip install -r requirements-dev.txt
 .\.venv\Scripts\python.exe -m pip check
 ```
 
-To run the dashboard after importing a real dataset:
+Create or upgrade the database schema. This is safe to repeat, and it takes a backup first when data exists:
 
 ```powershell
-.\.venv\Scripts\python.exe -m streamlit run app.py --server.address 127.0.0.1
+.\.venv\Scripts\python.exe -c "from portfoliopulse.database import initialize; initialize()"
 ```
 
-If no real dataset exists, the dashboard explains that ingestion is required; it does not present the fictional demo as real market performance. Streamlit's [official run instructions](https://docs.streamlit.io/develop/concepts/architecture/run-your-app) describe this local command.
-
-### Configure Angel One SmartAPI
-
-Credentials are read locally from environment variables. Create an ignored `.env` from the example, then enter credentials on your computer:
+Load market data. Use one of these two routes; the market data itself is not distributed with the repository.
 
 ```powershell
-Copy-Item .env.example .env
-notepad .env
-```
-
-The expected names are `ANGELONE_API_KEY`, `ANGELONE_CLIENT_ID`, `ANGELONE_PASSWORD` and `ANGELONE_TOTP_SECRET`. Never commit `.env` or expose these values in logs or screenshots. Angel One's official [SmartAPI documentation](https://smartapi.angelone.in/docs) describes historical candle requests, instrument tokens and intervals. This project requests daily (`ONE_DAY`) OHLCV and records the source and price basis.
-
-Refresh an inclusive start / exclusive end window:
-
-```powershell
-.\.venv\Scripts\python.exe -m scripts.refresh_angelone --start 2024-01-02 --end 2026-10-16
-```
-
-Import a legally obtained, source-labelled fallback CSV with a provenance sidecar:
-
-```powershell
-.\.venv\Scripts\python.exe -m scripts.import_sourced_csv --input data\incoming\prices.csv --start 2024-01-02 --end 2026-10-16
+# Source-labelled CSV with a provenance sidecar (format: docs/PHASE_3_DATA_SQL.md)
 .\.venv\Scripts\python.exe -m scripts.ingest_phase3 --source sourced --input data\incoming\prices.csv --start 2024-01-02 --end 2026-10-16
 ```
 
-See [Phase 2/3 data instructions](docs/PHASE_3_DATA_SQL.md) for the exact header, sidecar fields, offline replay and provenance rules. Downloaded market data is kept local; review provider/exchange terms before redistributing it.
-
-### Calculate and validate
-
-Run Phase 4 analytics for a saved dataset ID. The 6% annual INR risk-free assumption below is illustrative; use the value appropriate for your analysis and disclose it.
-
 ```powershell
-.\.venv\Scripts\python.exe -m scripts.analyze_phase4 --dataset-id 1 --annual-rf 0.06 --confidence 0.95
+# Angel One SmartAPI (needs .env credentials; start inclusive, end exclusive)
+.\.venv\Scripts\python.exe -m scripts.refresh_angelone --start 2026-10-29 --end 2026-11-13
 ```
 
-Relative-performance metrics are saved with every Phase 4 run (same command). All comparisons are **price return vs NIFTY 50 price index**, not TRI.
-
-Run the advanced risk engine (engine `phase3_risk_v1`; saved as its own analysis run; `--no-save` skips the DB write). Defaults: 100,000 Monte Carlo paths, seed 20261112, 50 batches for standard errors, 250-observation backtest window:
+Then create the stored engine runs that the dashboard displays. Replace `1` with your dataset ID; each command reuses an identical existing run instead of duplicating it.
 
 ```powershell
 .\.venv\Scripts\python.exe -m scripts.analyze_risk --dataset-id 1
-```
-
-All VaR/ES figures are one-day, in-sample price-return statistics; no square-root-of-time scaling is applied. See [Conversation 3 handoff](docs/HANDOFF_CONV3.md) for formulas and the dataset 1 results.
-
-Run the stress-testing library (engine `phase4_stress_v1`; `--nse-reference-csv` adds a NIFTY 50 history for uncovered events, `--macro-factor-csv` a source-labelled rate/FX file, `--no-save` skips the DB write). Outputs a JSON report plus comparison, holdings and sector CSVs:
-
-```powershell
 .\.venv\Scripts\python.exe -m scripts.analyze_stress --dataset-id 1
-```
-
-See [Conversation 4 handoff](docs/HANDOFF_CONV4.md).
-
-Run illustrative portfolio construction (engine `phase5_opt_v1`; `--investment-inr` for integer-share allocation, `--config` for constraints/costs, `--no-save` skips the DB write). Requires at least 252 valid returns:
-
-```powershell
 .\.venv\Scripts\python.exe -m scripts.analyze_optimization --dataset-id 1
 ```
 
-See [Conversation 5 handoff](docs/HANDOFF_CONV5.md).
+## 8. Configuration
 
-Verify a dataset's price basis against a user-downloaded NSE Corporate Actions CSV and, if needed, create a new adjusted dataset version (the base dataset is never modified; nothing is downloaded):
+- **`config/instruments.json`:** the universe, quantities, target weights and benchmark.
+- **`config/optimization.json`:**
+  - risk-free rate (6%, illustrative; not a live RBI rate);
+  - expected-return method and covariance estimator;
+  - constraints: 5–35% per stock, Banking ≤ 40%, an optional turnover limit;
+  - transaction-cost components, which are assumptions to verify against your broker's contract note;
+  - investment amount and walk-forward windows.
+- **`config/stress_scenarios.json`:** the versioned scenario library, including the illustrative rate/FX sensitivities.
+- **`.env`:** Angel One credentials only, needed for live refreshes. Copy `.env.example` to `.env` and fill it in locally; never commit or share it. Offline analysis and tests need no credentials.
+- **`PORTFOLIOPULSE_DB`:** optional environment variable that points the dashboard at a different database file.
+
+## 9. Local execution
+
+There is one launch command, run from the repository folder:
 
 ```powershell
-.\.venv\Scripts\python.exe -m scripts.corporate_actions --help
+.\.venv\Scripts\python.exe -m streamlit run app.py
 ```
 
-Diagnose the Angel One HTTP 403 without exposing secrets (offline by default; `--live` authenticates from your local `.env` and prints only status codes, hosts, header names, error codes and fixed labels):
+Then open the URL it prints (normally http://localhost:8501). Stop the app with `Ctrl+C`. With the virtual environment activated (`.\.venv\Scripts\Activate.ps1`), `streamlit run app.py` is equivalent.
+
+## 10. Dashboard overview
+
+The dashboard is **read-only**. It opens SQLite with `mode=ro`, never initializes or migrates the schema, and computes the sidebar-driven analytics in memory without saving them.
+
+By default it opens the most recent dataset that has stored engine runs. Tabs:
+
+| Tab | Content |
+|---|---|
+| Performance | Growth of ₹100 vs NIFTY 50; drawdown |
+| Benchmark comparison | TE, IR, beta, capture ratios, rolling TE/beta, period returns |
+| Portfolio & targets | Holdings, session-only target weights, drift and concentration alerts |
+| Risk & diversification | Correlation heatmap, volatility contributions |
+| VaR & backtests | Stored VaR/ES by method, the k worst days, Kupiec/Christoffersen, drawdown duration, component VaR/ES |
+| Stress tests | Interactive direct shocks (hypothetical) |
+| Stress library | Stored scenario comparison, heatmap, waterfall, shock basis, unavailable events with reasons |
+| Optimization | Status notices, frontier, strategy comparison, integer-share allocation, walk-forward, trade-offs |
+| Attribution | Gated message (no constituent weights) |
+| Data & methodology | Source, retrieval time, price basis, coverage, excluded dates |
+| Reports | CSV zip and self-contained HTML report with a provenance header |
+
+## 11. Testing
 
 ```powershell
-.\.venv\Scripts\python.exe -m scripts.diagnose_angelone
-.\.venv\Scripts\python.exe -m scripts.diagnose_angelone --live --idle-seconds 65 --attempts 2 --spacing 60
-```
-
-Run all automated tests:
-
-```powershell
-.\.venv\Scripts\python.exe -m pip install -r requirements-dev.txt
 .\.venv\Scripts\python.exe -m pytest -q -p no:cacheprovider
+.\.venv\Scripts\python.exe -m scripts.audit_consistency --dataset-id 1
 ```
 
-The current local run (2026-11-12) completed with **265 tests passing and 71 passing subtests**. API tests use mocks; live Angel One historical access remains unverified.
+- **Version 1.0 result (2026-11-13): 280 passed, 71 subtests passed.** The same result was reproduced in a clean virtual environment built from the pinned requirements.
+- **What the suite covers:**
+  - hand-calculated financial fixtures, including the independent audit in `tests/test_financial_audit.py`;
+  - integration tests on temporary databases;
+  - migrations;
+  - Streamlit `AppTest` renders, run against an OS-level read-only database file.
+- **`audit_consistency`** is a read-only cross-module check of the stored runs: dates, portfolio value, INR conversion, reconciliations, a Kupiec recomputation, constraints and the walk-forward window. It reported 29/29 PASS.
 
-An independent **ten-date spot check** of NIFTY 50 price-index closes for 1–15 October 2026 was completed against values displayed on [NSE Indices historical data](https://www.niftyindices.com/reports/historical-data). All ten provider values were within 0.01 index points; the largest absolute difference was 0.00078125 points. The [reference CSV](docs/reference/nifty50_nse_indices_2026-10-01_2026-10-15.csv) is a transcription of the displayed official table, not an original NSE export. See [Final audit](docs/FINAL_AUDIT.md) for the comparison command and limitations. For a broader comparison, obtain an official NIFTY 50 price-index CSV and follow the checklist in [Phase 7 verification](docs/PHASE_7_VERIFICATION.md).
+The full methodology audit is in [docs/FINANCIAL_METHODOLOGY_AUDIT.md](docs/FINANCIAL_METHODOLOGY_AUDIT.md).
 
-## Limitations
+### Troubleshooting
 
-- Angel One live delivery is verified only for a 15-day window (dataset 2). Long-window requests previously returned HTTP 403 and have not been re-tested. Angel candles are unadjusted, so long histories need corporate-action handling. The SDK sends a placeholder public-IP header that is accepted today.
-- The current local analysis source is Yahoo Finance OHLCV, labelled unadjusted and user-declared/unverified. The ten-date NSE NIFTY 50 spot check supports only those selected index closes; it does not validate the remaining dates or stock prices.
-- Dataset 1 shows no daily move above 35% across the window, which is consistent with split/bonus adjustment, but this has not been checked against NSE corporate-action ex-dates; its `unadjusted_ohlcv` label is unconfirmed.
-- Benchmark attribution stays disabled until a constituent file with valid weights (official or explicitly labelled estimated) and NSE industry classifications is imported.
-- Unadjusted close data may omit dividends and corporate-action effects; it does not support a total-return claim.
-- The observed union dates are not an independently verified exchange calendar. Missing quotes can omit a daily loss; the pipeline reports gaps instead of fabricating values.
-- Historical VaR/ES depend on the selected sample and are not loss guarantees. Stress shocks are hypothetical and depend on analyst-selected settings.
-- This release models an Indian **equity** portfolio. The fictional demo includes other asset classes but is isolated and is not evidence of live commodity or debt analytics.
-- No automated deployment, broker holdings synchronization, trading, forecasts or LLM-generated investment advice are implemented.
+- **"No real Indian market dataset is stored yet":** no `data/portfoliopulse.db` exists, or it has no dataset. Run the initialization and import steps in §7.
+- **Empty VaR, Stress library or Optimization tabs:** that dataset has no stored engine run. The tab shows the exact command to create one.
+- **`Optimization failed: ... needs at least 252`:** the dataset is too short (e.g. dataset 2), so use dataset 1.
+- **`pip` errors:** confirm Python 3.12 and a fresh `.venv`. Do not mix in globally installed packages.
+- **Port already in use:** run `.\.venv\Scripts\python.exe -m streamlit run app.py --server.port 8502`.
+- **Angel One HTTP 403:** run `.\.venv\Scripts\python.exe -m scripts.diagnose_angelone` (offline and sanitized), and see [docs/HANDOFF_CONV2.md](docs/HANDOFF_CONV2.md).
+
+## 12. Known limitations
+
+- **Unverified main data.** Dataset 1 is Yahoo data and user-declared/unverified. Its `unadjusted_ohlcv` label is probably wrong: the evidence shows split/bonus adjustment and a possibly unadjusted ITC demerger. Confirming this needs the **official NSE Corporate Actions file**; the tooling is ready (`scripts.corporate_actions`). A corrected Dataset 3 will be created only from that file.
+- **Price returns only.** NIFTY 50 is the price index, not the total-return index (TRI), and dividends are not included.
+- **Attribution is gated.** Benchmark attribution stays off until NIFTY 50 constituent weights with NSE industry classifications are imported. Weights are never fabricated.
+- **Rate and FX stress use illustrative sensitivities.** They are not estimated, because no RBI/FBIL series has been supplied. The COVID-2020 and 2022 events are unavailable: dataset 1 starts in 2024, and no index moves are filled from memory.
+- **Short, single-regime sample.** VaR/ES, backtests, betas, covariances and optimized weights are in-sample statistics on about 2.7 years of data. Expected-return standard errors are about 12–16% a year. Max-Sharpe is undefined at the 6% risk-free assumption. Walk-forward covers about 1.7 years.
+- **Narrow universe.** Five stocks in four sectors, selected today, means no broad diversification claim and survivorship/selection bias.
+- **Limited Angel One verification.** Live access is verified for one 15-day window only; long-window access is untested.
+- **Out of scope:** trading, broker holdings synchronization, forecasting, LLM advice, monitoring and cloud deployment.
 
 ## Sources
 
-- [Angel One SmartAPI official documentation](https://smartapi.angelone.in/docs)
+- [Angel One SmartAPI documentation](https://smartapi.angelone.in/docs)
 - [Angel One SmartAPI Python SDK](https://github.com/angel-one/smartapi-python)
-- [NSE All Reports](https://www.nseindia.com/all-reports)
+- [NSE corporate filings — corporate actions](https://www.nseindia.com/companies-listing/corporate-filings-actions)
 - [NSE Indices historical data](https://www.niftyindices.com/reports/historical-data)
 - [Streamlit: run your app](https://docs.streamlit.io/develop/concepts/architecture/run-your-app)
 
-## CV and interview handoff
-
-See [CV bullets and interview preparation](docs/PORTFOLIOPULSE_CV_INTERVIEW.md) for three evidence-based resume bullets and ten project questions with concise answers.
+Further reading:
+- [docs/HANDOFF_FINAL.md](docs/HANDOFF_FINAL.md): final handoff;
+- [CLAUDE.md](CLAUDE.md): developer and agent guide;
+- [docs/PORTFOLIOPULSE_CV_INTERVIEW.md](docs/PORTFOLIOPULSE_CV_INTERVIEW.md): CV and interview notes.

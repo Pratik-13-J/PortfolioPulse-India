@@ -27,10 +27,10 @@ Quantities and target weights are illustrative configuration, not recommendation
 
 Use these status statements when developing, documenting, or presenting the project:
 
-1. Portfolio analytics, scenario attribution, SQLite persistence, and Streamlit/Plotly dashboard are implemented.
-2. The recorded local verification reported **91 pytest tests and 57 subtests passing**. These are historical audit results, not proof that a new checkout or later code change currently passes. Run the tests before making a fresh claim.
+1. **Version 1.0 (2026-11-13).** Implemented: portfolio analytics, relative performance, the risk engine, stress testing, optimization, a read-only Streamlit/Plotly dashboard, reports, SQLite persistence (schema v4) and corporate-action tooling. Brinson attribution is implemented but gated on data. See `docs/HANDOFF_FINAL.md` and `docs/FINANCIAL_METHODOLOGY_AUDIT.md`.
+2. The v1.0 verification reported **280 pytest tests and 71 subtests passing** in both the project venv and a clean venv, and `scripts.audit_consistency` reported 29/29 PASS. These are recorded results, not proof that a later change passes; run the tests before making a fresh claim.
 3. Angel One SmartAPI adapter, instrument-master resolution, candle normalization, retries, and offline-cache workflow are implemented and mock-tested. The 2026-10-16 refresh received HTTP 403 access-rate responses (cause not isolated). On 2026-11-12 a live diagnostic and a controlled 15-day pull succeeded: **dataset 2** (`angel_one_smartapi`, `verified_live`, `unadjusted_ohlcv`, 2026-10-29 to 2026-11-12, 66 candles). Only this short window is verified live; long-window Angel access is untested. See `docs/HANDOFF_CONV2.md` §6.
-4. The saved local analysis dataset is a separate Yahoo Finance OHLCV CSV imported through the source-labelled fallback. It is marked `unadjusted_ohlcv` and user-declared/unverified. It is **not Angel One data**.
+4. The main analysis dataset (dataset 1) is a separate Yahoo Finance OHLCV CSV imported through the source-labelled fallback. It is marked `unadjusted_ohlcv` and user-declared/unverified, and it is **not Angel One data**. The evidence suggests split/bonus-adjusted prices with a possibly unadjusted ITC demerger; this stays unconfirmed until an NSE Corporate Actions file is imported. A correction goes into a new dataset version only (user decision); dataset 1 is never modified.
 5. Only a limited ten-date NIFTY 50 spot check was compared with displayed official NSE Indices values. The audit reported all ten within 0.01 index points, with maximum absolute difference 0.00078125. This does not validate the complete history, individual stocks, or every date.
 6. Returns are price returns, not dividend-aware total returns. The benchmark is NIFTY 50 price index, not TRI. Corporate actions and dividends are not independently adjusted in the unadjusted fallback.
 7. The illustrative annual INR risk-free rate default is 6%; it is a user assumption, not a live RBI feed.
@@ -516,3 +516,14 @@ Full details: `docs/HANDOFF_CONV6.md`. Branch `conv6-dashboard` (from `c4ca993`,
   - idempotent.
 - **Tests:** 265 passed / 71 subtests. The real DB is unchanged (SHA-256 `dd4673ce…`).
 - **Next:** the user supplies the NSE CSV(s) → `convert` → `import` → `evidence` → decide → `build-version` → re-run engines on the new dataset.
+
+### 2026-11-13 — Version 1.0 finalization
+
+- **Audit:** an independent financial-methodology audit (`docs/FINANCIAL_METHODOLOGY_AUDIT.md`) with a new `tests/test_financial_audit.py` (14 hand-calculated tests) and a read-only `scripts/audit_consistency.py` (29/29 PASS on runs 9/10/11).
+  - **No mathematical defect was found.**
+  - **One integration defect was fixed:** the dashboard defaulted to dataset 2, which has no runs; `ui.stored_results.default_dataset_index` now picks the latest dataset with stored runs (test added).
+  - **Documented:** the historical VaR is floored at 0 while the parametric VaR is unfloored; Treynor, BHB, MWR and sector risk contribution are not implemented.
+- **Tests:** **280 passed / 71 subtests** in the project venv and in a fresh venv built from the pinned `requirements-dev.txt` (`pip check` clean). The clean-venv Streamlit server answered its health check, and the HTML report was generated in the browser.
+- **DB:** no writes during finalization. The SHA-256 stayed `dd4673ce…` and the row fingerprint stayed `1b307b3e…`.
+- **Repository:** history scan clean (no `.env`, database, backup, key or token ever committed). The README was rewritten into the 12 required sections; `docs/HANDOFF_FINAL.md` was added.
+- **Remaining user data:** the NSE Corporate Actions CSV, NIFTY 50 constituent weights, and RBI/FBIL rate and FX series (see `docs/HANDOFF_FINAL.md` §10).
