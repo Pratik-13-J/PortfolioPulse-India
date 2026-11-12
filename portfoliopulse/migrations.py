@@ -244,10 +244,60 @@ def _migration_3(con: sqlite3.Connection) -> None:
             con.execute(statement)
 
 
+# --- Migration 4: optimization results (separate from holdings) ------------
+# Optimized allocations are illustrative and live only here; they never touch
+# dataset_holdings, holdings or config/instruments.json.
+
+_V4_SQL = """
+CREATE TABLE IF NOT EXISTS optimization_runs (
+    optimization_run_id INTEGER PRIMARY KEY,
+    analysis_id INTEGER NOT NULL REFERENCES analysis_metadata(analysis_id),
+    dataset_id INTEGER NOT NULL REFERENCES candle_datasets(dataset_id),
+    strategy TEXT NOT NULL CHECK(length(trim(strategy)) > 0),
+    status TEXT NOT NULL CHECK(status IN ('optimal', 'constrained', 'infeasible', 'undefined', 'failed', 'reference')),
+    illustrative INTEGER NOT NULL DEFAULT 1 CHECK(illustrative = 1),
+    settings_json TEXT NOT NULL,
+    diagnostics_json TEXT NOT NULL,
+    metrics_json TEXT NOT NULL,
+    created_at_utc TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(analysis_id, strategy)
+);
+
+CREATE TABLE IF NOT EXISTS optimization_weights (
+    optimization_run_id INTEGER NOT NULL REFERENCES optimization_runs(optimization_run_id) ON DELETE CASCADE,
+    symbol TEXT NOT NULL CHECK(length(trim(symbol)) > 0),
+    sector TEXT NOT NULL,
+    target_weight REAL NOT NULL CHECK(target_weight >= -1e-9 AND target_weight <= 1.000000001),
+    current_weight REAL NOT NULL,
+    integer_shares INTEGER CHECK(integer_shares IS NULL OR integer_shares >= 0),
+    allocated_value_inr REAL CHECK(allocated_value_inr IS NULL OR allocated_value_inr >= 0),
+    allocated_weight REAL,
+    PRIMARY KEY(optimization_run_id, symbol)
+);
+
+CREATE TABLE IF NOT EXISTS optimization_backtests (
+    optimization_run_id INTEGER NOT NULL REFERENCES optimization_runs(optimization_run_id) ON DELETE CASCADE,
+    observation_date TEXT NOT NULL,
+    gross_return REAL NOT NULL,
+    net_return REAL NOT NULL,
+    turnover REAL NOT NULL DEFAULT 0 CHECK(turnover >= 0),
+    cost_fraction REAL NOT NULL DEFAULT 0 CHECK(cost_fraction >= 0),
+    PRIMARY KEY(optimization_run_id, observation_date)
+);
+"""
+
+
+def _migration_4(con: sqlite3.Connection) -> None:
+    for statement in _V4_SQL.split(";"):
+        if statement.strip():
+            con.execute(statement)
+
+
 MIGRATIONS: tuple[Migration, ...] = (
     Migration(1, "provenance_reference_tables", _migration_1),
     Migration(2, "candle_datasets_split_basis_and_verification_status", _migration_2),
     Migration(3, "benchmark_constituents_and_classifications", _migration_3),
+    Migration(4, "optimization_runs_weights_backtests", _migration_4),
 )
 LATEST_VERSION = MIGRATIONS[-1].version
 

@@ -191,6 +191,56 @@ def list_scenario_runs(analysis_id: int, *, path: Path = DB_PATH) -> list[dict[s
     return [dict(row) for row in rows]
 
 
+def list_optimization_runs(analysis_id: int, *, path: Path = DB_PATH) -> list[dict[str, Any]]:
+    """Optimization runs linked to one analysis run (read-only; migration 4)."""
+    with session(path) as con:
+        rows = con.execute(
+            """SELECT optimization_run_id, strategy, status FROM optimization_runs
+               WHERE analysis_id=? ORDER BY optimization_run_id""", (analysis_id,),
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def save_optimization_runs(
+    *, dataset_id: int, analysis_id: int, runs: Sequence[Mapping[str, Any]], path: Path = DB_PATH,
+) -> dict[str, int]:
+    """Atomically store illustrative optimization runs, weights and backtests.
+
+    Each run mapping has ``strategy``, ``status``, ``settings``, ``diagnostics``,
+    ``metrics``, ``weights`` (rows with symbol, sector, target_weight,
+    current_weight, integer_shares, allocated_value_inr, allocated_weight) and
+    optional ``backtest`` rows (observation_date, gross_return, net_return,
+    turnover, cost_fraction). Holdings tables are never written.
+    """
+    ids: dict[str, int] = {}
+    with session(path) as con:
+        for run in runs:
+            cursor = con.execute(
+                """INSERT INTO optimization_runs(analysis_id,dataset_id,strategy,status,illustrative,
+                       settings_json,diagnostics_json,metrics_json) VALUES(?,?,?,?,1,?,?,?)""",
+                (analysis_id, dataset_id, run["strategy"], run["status"],
+                 json.dumps(run["settings"], sort_keys=True, allow_nan=False),
+                 json.dumps(run["diagnostics"], sort_keys=True, allow_nan=False),
+                 json.dumps(run["metrics"], sort_keys=True, allow_nan=False)),
+            )
+            run_id = int(cursor.lastrowid)
+            ids[run["strategy"]] = run_id
+            con.executemany(
+                """INSERT INTO optimization_weights(optimization_run_id,symbol,sector,target_weight,current_weight,
+                       integer_shares,allocated_value_inr,allocated_weight) VALUES(?,?,?,?,?,?,?,?)""",
+                [(run_id, w["symbol"], w["sector"], float(w["target_weight"]), float(w["current_weight"]),
+                  w.get("integer_shares"), w.get("allocated_value_inr"), w.get("allocated_weight"))
+                 for w in run.get("weights", [])],
+            )
+            con.executemany(
+                """INSERT INTO optimization_backtests(optimization_run_id,observation_date,gross_return,net_return,
+                       turnover,cost_fraction) VALUES(?,?,?,?,?,?)""",
+                [(run_id, b["observation_date"], float(b["gross_return"]), float(b["net_return"]),
+                  float(b["turnover"]), float(b["cost_fraction"])) for b in run.get("backtest", [])],
+            )
+    return ids
+
+
 def seed_instruments(path: Path = DB_PATH) -> None:
     rows = [(item.symbol, item.name, item.asset_class, item.sector, DEMO_SOURCE) for item in DEMO_INSTRUMENTS]
     with session(path) as con:
