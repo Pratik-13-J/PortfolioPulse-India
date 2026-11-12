@@ -13,7 +13,7 @@ import pandas as pd
 
 from portfoliopulse.config import DB_PATH, PROJECT_ROOT
 from portfoliopulse.data_quality import DataQualityError
-from portfoliopulse.portfolio_analysis import Phase4Analysis, analyze_saved_dataset
+from portfoliopulse.portfolio_analysis import ENGINE_VERSION, Phase4Analysis, analyze_saved_dataset
 from portfoliopulse.portfolio_returns import PortfolioReturnError
 
 
@@ -65,7 +65,7 @@ def save_phase4_report(result: Phase4Analysis, directory: Path = DEFAULT_REPORT_
         "input_csv_sha256": result.input_csv_sha256,
         "return_basis": "close_to_close_price_return",
         "portfolio_model": "buy_and_hold_fixed_quantities",
-        "engine_version": "phase4_v1",
+        "engine_version": ENGINE_VERSION,
         "benchmark_symbol": result.benchmark_symbol,
         "annual_risk_free_rate_assumption": result.annual_risk_free_rate,
         "confidence": result.confidence,
@@ -74,6 +74,18 @@ def save_phase4_report(result: Phase4Analysis, directory: Path = DEFAULT_REPORT_
         "quality": result.quality.to_summary(),
         "observed_union_intervals_for_endpoint_annualization": result.returns.observed_union_intervals,
         "undefined_metrics": result.undefined_metrics,
+        "performance": None if result.performance is None else {
+            "comparison_label": "price return vs NIFTY 50 price index (not TRI)",
+            "observations": result.performance.observations,
+            "metrics": result.performance.metrics,
+            "metric_units": result.performance.units,
+            "undefined_metrics": result.performance.undefined,
+            "period_returns": result.performance.periods,
+            "contribution_reconciliation_error": result.performance.contributions.reconciliation_error,
+        },
+        "corporate_action_jump_warnings": (
+            [] if result.jump_warnings is None else result.jump_warnings.to_dict(orient="records")
+        ),
         "risk_weight_date": result.risk_weight_date,
         "risk_market_weights": {symbol: float(weight) for symbol, weight in weights.items()},
         "risk_contributions": (

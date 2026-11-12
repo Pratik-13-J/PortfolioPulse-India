@@ -15,9 +15,14 @@ import pandas as pd
 import numpy as np
 
 from portfoliopulse.config import DB_PATH, REAL_PORTFOLIO_NAME, TRADING_DAYS_PER_YEAR
-from portfoliopulse.data_quality import CandleQualityReport, DataQualityError, validate_daily_candles
+from portfoliopulse.data_quality import (
+    CandleQualityReport, DataQualityError, corporate_action_jump_warnings, validate_daily_candles,
+)
 from portfoliopulse.database import (
     get_candle_dataset, get_dataset_info, save_analysis_run,
+)
+from portfoliopulse.performance_metrics import (
+    ROLLING_WINDOWS, RelativePerformance, relative_performance, scalar_results as performance_scalars,
 )
 from portfoliopulse.portfolio_returns import BuyAndHoldReturns, build_buy_and_hold_returns
 from portfoliopulse.risk_metrics import (
@@ -49,8 +54,13 @@ class Phase4Analysis:
     correlations: pd.DataFrame
     risk_contributions: pd.DataFrame | None
     undefined_metrics: dict[str, str]
+    # Phase 2 (engine phase8_perf_v1). Kept separate from ``metrics`` so the
+    # original Phase 4 keys and values are unchanged.
+    performance: RelativePerformance | None = None
+    jump_warnings: pd.DataFrame | None = None
 
 
+ENGINE_VERSION = "phase8_perf_v1"
 def _benchmark_and_quantities(snapshot: Sequence[Mapping[str, Any]]) -> tuple[str, dict[str, float]]:
     if not snapshot:
         raise ValueError("The dataset has no saved holding snapshot.")
@@ -177,6 +187,17 @@ def compute_phase4_analysis(
         ),
         "current_weight_proxy_annualized_volatility": proxy_volatility,
     }
+    first_common, last_common = common_levels.index[0], common_levels.index[-1]
+    performance = relative_performance(
+        portfolio_daily, benchmark_daily,
+        levels=pd.DataFrame({
+            "portfolio": returns.portfolio_value_inr.loc[common_levels.index],
+            "benchmark": returns.price_grid.loc[common_levels.index, benchmark],
+        }),
+        holding_values_inr=returns.holding_values_inr.loc[first_common:last_common],
+        annual_risk_free_rate=rf,
+    )
+    jump_warnings = corporate_action_jump_warnings(returns.price_grid)
     units = {
         name: ("INR" if name.endswith("_inr") else "unitless" if name.endswith("_sharpe")
                or name.endswith("_correlation") else "annual_ratio" if "annualized" in name
@@ -200,6 +221,7 @@ def compute_phase4_analysis(
         metrics=metrics, metric_units=units,
         correlations=correlations, risk_contributions=contributions,
         undefined_metrics=undefined,
+        performance=performance, jump_warnings=jump_warnings,
     )
 
 
@@ -219,7 +241,7 @@ def analyze_saved_dataset(
     common_dates = result.returns.cumulative_comparison_returns.dropna(how="any").index
     settings = {
         "stage": "phase4_portfolio_analytics",
-        "engine_version": "phase4_v1",
+        "engine_version": ENGINE_VERSION,
         "portfolio_model": "buy_and_hold_fixed_quantities",
         "benchmark_symbol": result.benchmark_symbol,
         "return_basis": "close_to_close_price_return",
@@ -233,10 +255,30 @@ def analyze_saved_dataset(
         "var_es_method": "nearest_rank_worst_ceil_tail_count",
         "risk_contribution_method": "last_matched_date_weight_sample_covariance_proxy",
         "daily_missing_policy": "exclude_missing_current_or_previous_observed_quote",
+        "comparison_label": "price return vs NIFTY 50 price index (not TRI)",
+        "tracking_error_method": "sample_std_daily_active_ddof_1_times_sqrt_252",
+        "information_ratio_method": "mean_daily_active_times_252_over_tracking_error",
+        "beta_method": "sample_cov_over_sample_var_of_benchmark_daily_returns",
+        "downside_beta_method": "beta_on_days_with_benchmark_return_below_zero",
+        "capture_method": "geometric_mean_ratio_on_benchmark_up_or_down_days",
+        "sortino_method": "mean_daily_excess_times_252_over_root_mean_square_negative_excess_times_sqrt_252",
+        "rolling_windows_observations": list(ROLLING_WINDOWS),
+        "period_return_method": "last_common_date_on_or_before_calendar_offset_anchor",
+        "contribution_method": "lagged_value_weight_times_return_carino_linked",
     }
     quality = result.quality.to_summary()
     quality["endpoint_observed_union_intervals"] = result.returns.observed_union_intervals
-    quality["undefined_metrics"] = result.undefined_metrics
+    performance = result.performance
+    quality["undefined_metrics"] = {**result.undefined_metrics, **(performance.undefined if performance else {})}
+    if performance is not None:
+        quality["relative_metric_observations"] = performance.observations
+        quality["contribution_reconciliation_error"] = performance.contributions.reconciliation_error
+        quality["contribution_excluded_transitions"] = list(performance.contributions.excluded_transitions)
+        quality["period_return_anchors"] = {
+            period: None if values is None else values["anchor_date"] for period, values in performance.periods.items()
+        }
+    if result.jump_warnings is not None:
+        quality["corporate_action_jump_warnings"] = result.jump_warnings.to_dict(orient="records")
     scalar_results = {
         name: (float(value), result.metric_units[name])
         for name, value in result.metrics.items() if value is not None
@@ -253,6 +295,11 @@ def analyze_saved_dataset(
             scalar_results[f"volatility_share:{symbol}"] = (
                 float(row["percent_contribution"]), "ratio",
             )
+    if performance is not None:
+        overlap = set(scalar_results) & set(performance_scalars(performance))
+        if overlap:
+            raise ValueError(f"Phase 2 metric keys collide with Phase 4 keys: {sorted(overlap)}")
+        scalar_results.update(performance_scalars(performance))
     analysis_id = save_analysis_run(
         dataset_id, portfolio_name=result.portfolio_name,
         window_start=common_dates[0].strftime("%Y-%m-%d"),
