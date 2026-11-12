@@ -238,3 +238,17 @@ class DefaultDatasetTests(unittest.TestCase):
             ids = [newer, older]  # most recent first, as the dashboard lists them
             self.assertEqual(ids[default_dataset_index(ids, db_path=db)], older)
             self.assertEqual(default_dataset_index([999], db_path=db), 0)
+
+
+class AttributionDemoTests(unittest.TestCase):
+    def test_demo_is_labelled_and_reconciles(self):
+        from portfoliopulse.ui.attribution_demo import DEMO_LABEL, demo
+        result = demo()
+        self.assertIn("ILLUSTRATIVE ONLY", DEMO_LABEL)
+        # Hand: R_b = .35*.05 + .15*.03 + .20*0 + .30*.02 = 0.028; R_p = .45*.06 + .30*.02 + .25*.01 = 0.0355
+        self.assertAlmostEqual(result["benchmark_return"], 0.028, places=15)
+        self.assertAlmostEqual(result["portfolio_return"], 0.0355, places=15)
+        self.assertAlmostEqual(float(result["single_period"]["total"].sum()), 0.0075, places=15)
+        self.assertAlmostEqual(result["single_period"].at["Consumer", "allocation"], -0.30 * (0.02 - 0.028), places=15)
+        self.assertAlmostEqual(float(result["linked"]["total"].sum()), result["linked_active_return"], places=14)
+        self.assertAlmostEqual(result["active_share"], 0.5 * (0.10 + 0.15 + 0.05 + 0.30), places=15)

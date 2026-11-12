@@ -9,6 +9,7 @@ from pathlib import Path
 
 import pandas as pd
 import plotly.express as px
+import plotly.graph_objects as go
 import streamlit as st
 
 from portfoliopulse.attribution import allocation_alerts, scenario_attribution
@@ -21,6 +22,7 @@ from portfoliopulse.benchmark_attribution import attribution_gate
 from portfoliopulse.reporting import csv_bundle, html_report, provenance_rows
 from portfoliopulse.risk_analysis import COMPARISON_LABEL
 from portfoliopulse.ui import charts
+from portfoliopulse.ui.attribution_demo import demo as attribution_demo
 from portfoliopulse.ui.stored_results import (
     CLI, ENGINES, default_dataset_index, latest_run, optimization_view, risk_view, stress_view,
 )
@@ -534,6 +536,17 @@ with stress_library_tab:
     else:
         _run_caption(run)
         st.warning("Hypothetical one-period revaluations of the current fixed quantities. Not forecasts.")
+        if run.settings.get("macro_sensitivity_basis") == "assumed":
+            assumed = run.metrics[run.metrics["metric_name"].str.startswith("stress_macro_sensitivity:assumed:")]
+            if not assumed.empty:
+                parts = assumed["metric_name"].str.split(":", expand=True)
+                table = pd.DataFrame({"symbol": parts[3], "factor": parts[2], "value": assumed["value"].to_numpy()})
+                st.info("Rate and USD/INR scenarios use **illustrative assumed sector sensitivities** "
+                        "(config/stress_scenarios.json), not values estimated from RBI/FBIL data. "
+                        "rate_change_pp = return per +100 bp in the 10Y G-sec yield; usdinr_change = return per "
+                        "unit (decimal) USD/INR change. Supply a sourced factor file with "
+                        "`scripts.analyze_stress --macro-factor-csv` to estimate them by OLS instead.")
+                st.dataframe(table.pivot(index="symbol", columns="factor", values="value"), width="stretch")
         view = stress_view(run, db_path=DATABASE)
         comparison = view["comparison"]
         if comparison.empty:
@@ -621,6 +634,33 @@ with attribution_tab:
     gate = attribution_gate(None, db_path=DATABASE)
     st.warning("Gated: " + " ".join(gate.reasons) + " No attribution is calculated or shown without valid NIFTY 50 "
                "constituent weights; weights are never fabricated.")
+    st.caption("Real attribution needs official (or explicitly labelled estimated) NIFTY 50 constituent weights "
+               "with NSE industry classifications, imported with their source and SHA-256.")
+    st.subheader("How Brinson-Fachler works: illustrative example")
+    example = attribution_demo()
+    st.error(example["label"])
+    left, right = st.columns(2)
+    left.markdown("**Synthetic portfolio (sector weight, return)**")
+    left.dataframe(example["portfolio_sectors"].style.format("{:.2%}"), width="stretch")
+    right.markdown("**Synthetic benchmark (sector weight, return)**")
+    right.dataframe(example["benchmark_sectors"].style.format("{:.2%}"), width="stretch")
+    effects = example["single_period"]
+    figure = go.Figure()
+    for i, effect in enumerate(("allocation", "selection", "interaction")):
+        figure.add_bar(x=effects.index, y=effects[effect], name=effect, marker_color=charts.CATEGORICAL[i],
+                       hovertemplate="%{x}: %{y:.3%}<extra>" + effect + "</extra>")
+    figure.update_layout(barmode="group", template="plotly_white", title="Synthetic single-period effects by sector",
+                         yaxis_tickformat=".2%", legend_title_text="")
+    st.plotly_chart(figure, width="stretch")
+    st.dataframe(effects.style.format("{:.3%}"), width="stretch")
+    st.markdown(
+        f"Allocation + selection + interaction = **{effects['total'].sum():.3%}** = portfolio return "
+        f"{example['portfolio_return']:.3%} − benchmark return {example['benchmark_return']:.3%}. "
+        f"Two periods Carino-linked: effects sum to the cumulative active return "
+        f"**{example['linked_active_return']:.3%}**. Active Share (sector level): {example['active_share']:.1%}.")
+    st.caption("Formulas: allocation = (w_p − w_b)(R_b,s − R_b); selection = w_b (R_p,s − R_b,s); "
+               "interaction = (w_p − w_b)(R_p,s − R_b,s). A sector the portfolio does not hold (Consumer) has only "
+               "an allocation effect.")
 
 with reports_tab:
     st.subheader("Export")
