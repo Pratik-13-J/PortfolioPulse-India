@@ -84,6 +84,11 @@ Keep business logic out of the Streamlit presentation layer. Prefer small, testa
 - `covariance_estimators.py` (Conv 3) — sample, Ledoit-Wolf and EWMA (λ = 0.94) daily covariance.
 - `drawdowns.py` (Conv 3) — drawdown episodes, duration and recovery time.
 - `risk_analysis.py` (Conv 3) — Phase 3 risk orchestration; persists a separate run under `engine_version = phase3_risk_v1` (CLI `scripts/analyze_risk.py`).
+- `factor_sensitivities.py` (Conv 4) — OLS market betas and rate/USD-INR sensitivities with SE/R²; source-labelled factor CSV loader.
+- `stress_scenarios.py` (Conv 4) — `ShockVector` with separate direct / beta_propagated / covariance_propagated / factor / historical_observed components; scenario library loader (`config/stress_scenarios.json`).
+- `historical_stress.py` (Conv 4) — event-window replay from observed closes; model-propagated fallback from an NSE reference series; otherwise unavailable.
+- `stress_impact.py` (Conv 4) — stressed P&L (via `scenario_attribution`), sector impact, loss shares, integration with VaR/ES, drawdown and risk contributions.
+- `stress_analysis.py` (Conv 4) — stress orchestration under `engine_version = phase4_stress_v1` (CLI `scripts/analyze_stress.py`).
 - `scenarios.py` — definitions/generation of broad-market, banking, IT/sector, and individual-holding shocks.
 - `attribution.py` — holding-level scenario impact attribution, reconciliation, allocation drift, and concentration alerts.
 - `scenario_analysis.py` — orchestration of dataset-linked scenario calculations and persistence.
@@ -401,3 +406,20 @@ Full details: `docs/HANDOFF_CONV3.md`. Branch `conv3-risk-engine` (from `63b25ed
   - These are in-sample statistics, not forecasts.
 - **Open:** dataset 1 basis is unconfirmed (an NSE corporate-action file is needed before its tail/drawdown dates are treated as real events); dashboard display of Phase 3 outputs is not done. Next: Conversation 4 = roadmap Phase 4 stress testing (kickoff in `docs/HANDOFF_CONV3.md` §6).
 - Status statement §2 item 2 test counts are superseded by the figures above.
+
+### 2026-11-12 — Conversation 4 (roadmap Phase 4: Portfolio Stress Testing)
+
+Full details: `docs/HANDOFF_CONV4.md`. Branch `conv4-stress-testing` (from `4892ec1`, the unmerged `conv3-risk-engine` tip); commits `24a1c30` (pure modules + unit tests), `1cb0bb0` (orchestration + CLI), plus a docs commit. Not pushed.
+
+- **Tests (actually run):** baseline 192 / 71 subtests; final **219 passed / 71 subtests**. No existing test removed or edited. No new dependency.
+- **Design:** shock components keep direct and beta-/covariance-/factor-propagated moves apart, and every holding carries a `shock_basis`. P&L reuses `attribution.scenario_attribution`; direct presets reuse `scenarios.scenario_shocks`; VaR/ES come from `risk_analysis.compute_risk_analysis`.
+- **Schema:** unchanged (v3). Results are one `analysis_metadata` run (`phase4_stress_v1`) plus existing-schema `scenario_runs`/`scenario_contributions` rows with new `scenario_type` values. Reruns are idempotent.
+- **Real DB:**
+  - backup `data/backups/portfoliopulse_pre_conv4_stress_20261112T171648238607Z.db`, trial on a copy first;
+  - **analysis run 10** and **scenario runs 3–18**;
+  - all prior rows, datasets and holdings bit-identical; integrity/FK clean.
+- **Data limits:**
+  - COVID-2020 and 2022 events are **unavailable**, because dataset 1 starts 2024-01-02. Never fill index moves from memory; an NSE Indices CSV via `--nse-reference-csv` makes them `model_propagated`.
+  - Rate/FX scenarios use **illustrative assumed** sector sensitivities from config unless a source-labelled factor CSV is supplied.
+- **Dataset 1 headline:** NIFTY −10% beta-propagated = −9.18% (₹−10,945), about 4.3× historical 99% one-day VaR. The worst observed NIFTY drawdown replay gives −13.46%.
+- **Next:** Conversation 5 = roadmap Phase 5 optimization (kickoff in `docs/HANDOFF_CONV4.md` §6).
