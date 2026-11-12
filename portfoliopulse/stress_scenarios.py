@@ -36,6 +36,7 @@ from portfoliopulse.scenarios import scenario_shocks
 COMPONENTS = ("direct", "beta_propagated", "covariance_propagated", "factor", "historical_observed")
 UNCLASSIFIED = "Unclassified"
 HYPOTHETICAL_KINDS = ("beta_market", "direct", "covariance_individual", "combined", "macro")
+CRLF, LF = bytes([13, 10]), bytes([10])  # line-ending normalisation for content hashes
 DEFAULT_LIBRARY_PATH = Path(__file__).resolve().parents[1] / "config" / "stress_scenarios.json"
 
 
@@ -221,7 +222,7 @@ def macro_vector(
 
 
 def load_library(path: Path = DEFAULT_LIBRARY_PATH) -> tuple[dict[str, Any], str]:
-    """Load and validate the versioned scenario library; return (library, sha256)."""
+    """Load and validate the versioned scenario library; return (library, LF-normalised sha256)."""
     payload = Path(path).read_bytes()
     library = json.loads(payload.decode("utf-8"))
     for key in ("library_version", "historical_events", "hypothetical_scenarios", "assumed_macro_sensitivities"):
@@ -238,4 +239,6 @@ def load_library(path: Path = DEFAULT_LIBRARY_PATH) -> tuple[dict[str, Any], str
     for spec in library["hypothetical_scenarios"]:
         if spec.get("kind") not in HYPOTHETICAL_KINDS:
             raise ValueError(f"{spec.get('scenario_id')}: unknown kind {spec.get('kind')!r}.")
-    return library, hashlib.sha256(payload).hexdigest()
+    # Hash content with line endings normalised to LF (Git's stored form), so a CRLF
+    # checkout (core.autocrlf) does not change the recorded library identity.
+    return library, hashlib.sha256(payload.replace(CRLF, LF)).hexdigest()

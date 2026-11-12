@@ -40,7 +40,7 @@ from portfoliopulse.portfolio_analysis import Phase4Analysis, compute_phase4_ana
 from portfoliopulse.portfolio_evaluation import evaluate
 from portfoliopulse.risk_analysis import COMPARISON_LABEL
 from portfoliopulse.stress_analysis import jsonable
-from portfoliopulse.stress_scenarios import normalize_holdings
+from portfoliopulse.stress_scenarios import CRLF, LF, normalize_holdings
 
 ENGINE_VERSION = "phase5_opt_v1"
 DEFAULT_CONFIG_PATH = PROJECT_ROOT / "config" / "optimization.json"
@@ -84,7 +84,9 @@ def load_config(path: Path = DEFAULT_CONFIG_PATH) -> tuple[dict[str, Any], str]:
                 "transaction_costs", "walk_forward", "minimum_observations"):
         if key not in config:
             raise ValueError(f"Optimization config is missing {key}.")
-    return config, hashlib.sha256(payload).hexdigest()
+    # Hash content with line endings normalised to LF (Git's stored form), so a CRLF
+    # checkout (core.autocrlf) does not change the recorded config identity.
+    return config, hashlib.sha256(payload.replace(CRLF, LF)).hexdigest()
 
 
 def _rules(constraints: Constraints, sectors: pd.Series, symbols: list[str], method: str, estimator: str,

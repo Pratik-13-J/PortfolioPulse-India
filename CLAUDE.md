@@ -468,3 +468,16 @@ Full details: `docs/HANDOFF_CONV6.md`. Branch `conv6-dashboard` (from `c4ca993`,
 - Tests: **257 passed / 71 subtests**. AppTest runs against a DB file chmod-ed read-only and asserts its SHA-256 and mtime are unchanged after rendering, changing the risk-free rate / confidence, and preparing reports; a missing DB file is not created.
 - Live check against the real `data/portfoliopulse.db` (switch dataset, change rf): SHA-256 and mtime unchanged; still 12 analysis rows.
 - The read-only stored-run tabs still need runs created via `scripts.analyze_risk` / `analyze_stress` / `analyze_optimization`.
+
+### 2026-11-12 — Config hashes made line-ending independent; dataset 1 engine results re-saved
+
+- `optimization_analysis.load_config` and `stress_scenarios.load_library` now hash file content with CRLF normalised to LF (Git's stored form). Before this, a CRLF checkout (`core.autocrlf=true`) changed `config_sha256` without any content change, which would have made a re-save create a duplicate run. A test covers LF vs CRLF.
+- **Backup:** `data/backups/portfoliopulse_pre_engine_rerun_20261112T181239164431Z.db`.
+- **Re-saves:**
+  - `scripts.analyze_risk --dataset-id 1` reused **analysis 9**;
+  - `scripts.analyze_optimization --dataset-id 1` reused **analysis 11** (7 strategy runs).
+  - A no-save dry run first confirmed bit-identical settings, quality and all metrics and weights.
+  - After saving, all 25 tables' row content is identical to the pre-run fingerprint, with no new rows; integrity ok, 0 FK violations.
+- **Stress (analysis 10) was not re-saved.** Its stored `scenario_library_sha256` (`c03da05…`) was computed on a CRLF file, so under LF-normalised hashing a re-save would create a duplicate run that differs only in that hash. Its 182 metrics and 16 scenario impacts reproduce bit-identically.
+- Pre-existing duplicates (not created now): five `phase4_v1` runs on dataset 1, and scenario runs 1–2 both "Broad Market" (October 2026 history).
+- Tests: **258 passed / 71 subtests**. The read-only dashboard shows runs 9/10/11 for dataset 1, and the DB file hash is unchanged by viewing.

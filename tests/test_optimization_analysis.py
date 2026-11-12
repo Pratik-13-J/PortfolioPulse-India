@@ -140,3 +140,17 @@ class InsufficientDataTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ConfigHashTests(unittest.TestCase):
+    def test_config_and_library_hashes_ignore_line_endings(self):
+        import hashlib
+        from portfoliopulse.stress_scenarios import load_library
+        for loader, name in ((load_config, "optimization.json"), (load_library, "stress_scenarios.json")):
+            source = (PROJECT_ROOT / "config" / name).read_bytes().replace(b"\r\n", b"\n")
+            with TemporaryDirectory(dir=PROJECT_ROOT / ".tmp") as temp:
+                lf, crlf = Path(temp) / "lf.json", Path(temp) / "crlf.json"
+                lf.write_bytes(source)
+                crlf.write_bytes(source.replace(b"\n", b"\r\n"))
+                self.assertEqual(loader(lf)[1], loader(crlf)[1], name)
+                self.assertEqual(loader(lf)[1], hashlib.sha256(source).hexdigest(), name)
