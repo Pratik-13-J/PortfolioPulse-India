@@ -481,3 +481,15 @@ Full details: `docs/HANDOFF_CONV6.md`. Branch `conv6-dashboard` (from `c4ca993`,
 - **Stress (analysis 10) was not re-saved.** Its stored `scenario_library_sha256` (`c03da05…`) was computed on a CRLF file, so under LF-normalised hashing a re-save would create a duplicate run that differs only in that hash. Its 182 metrics and 16 scenario impacts reproduce bit-identically. **User decision (2026-11-12): keep run 10 as the stored stress result; do not re-save.**
 - Pre-existing duplicates (not created now): five `phase4_v1` runs on dataset 1, and scenario runs 1–2 both "Broad Market" (October 2026 history).
 - Tests: **258 passed / 71 subtests**. The read-only dashboard shows runs 9/10/11 for dataset 1, and the DB file hash is unchanged by viewing.
+
+### 2026-11-12 — Dataset 1 price-basis review (pending NSE file)
+
+- Read-only evidence:
+  - no daily move above 10% for any stock across 686 returns;
+  - no gap around the expected RELIANCE (Oct 2024) and HDFCBANK (Aug 2025) 1:1 bonuses;
+  - 2024-01-02 price levels look about half of the contemporaneous quotes;
+  - ITC 2025-01-06 fell −4.55% vs NIFTY −1.60% (possible unadjusted ITC Hotels demerger);
+  - ITC 2026-01-01 fell −9.71% (unexplained).
+  - Likely basis: Yahoo split/bonus-adjusted, not dividend-adjusted, demerger unadjusted. **Unverified** until an NSE corporate-action file is imported. The event dates above are general knowledge, not data.
+- **User decision:** if a correction is needed, create a **new dataset version** (e.g. dataset 3) that references dataset 1 and the NSE reference file. Do **not** relabel or modify dataset 1 or its runs 9–12.
+- Waiting on the user to supply the NSE Corporate Actions CSV(s) for RELIANCE, HDFCBANK, INFY, ICICIBANK and ITC (2024-01-01 to 2026-10-16) in `data/incoming/reference/`, with source URL and retrieval time. A demerger adjustment additionally needs ITC's cost-of-acquisition split or NSE's ex-date adjusted price; without one, it stays unadjusted and flagged.
