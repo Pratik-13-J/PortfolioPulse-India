@@ -478,6 +478,6 @@ Full details: `docs/HANDOFF_CONV6.md`. Branch `conv6-dashboard` (from `c4ca993`,
   - `scripts.analyze_optimization --dataset-id 1` reused **analysis 11** (7 strategy runs).
   - A no-save dry run first confirmed bit-identical settings, quality and all metrics and weights.
   - After saving, all 25 tables' row content is identical to the pre-run fingerprint, with no new rows; integrity ok, 0 FK violations.
-- **Stress (analysis 10) was not re-saved.** Its stored `scenario_library_sha256` (`c03da05…`) was computed on a CRLF file, so under LF-normalised hashing a re-save would create a duplicate run that differs only in that hash. Its 182 metrics and 16 scenario impacts reproduce bit-identically.
+- **Stress (analysis 10) was not re-saved.** Its stored `scenario_library_sha256` (`c03da05…`) was computed on a CRLF file, so under LF-normalised hashing a re-save would create a duplicate run that differs only in that hash. Its 182 metrics and 16 scenario impacts reproduce bit-identically. **User decision (2026-11-12): keep run 10 as the stored stress result; do not re-save.**
 - Pre-existing duplicates (not created now): five `phase4_v1` runs on dataset 1, and scenario runs 1–2 both "Broad Market" (October 2026 history).
 - Tests: **258 passed / 71 subtests**. The read-only dashboard shows runs 9/10/11 for dataset 1, and the DB file hash is unchanged by viewing.
