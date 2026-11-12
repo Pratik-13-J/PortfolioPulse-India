@@ -9,9 +9,12 @@ PortfolioPulse analyses a configurable buy-and-hold portfolio of NSE-listed shar
 | Area | Status |
 |---|---|
 | Portfolio analytics, scenario attribution and dashboard | Implemented; the portfolio uses fixed share quantities and weights drift with prices. |
-| Automated verification | 91 pytest tests and 57 subtests pass locally. The tests use deterministic/mock data and hand-checkable examples. |
+| Automated verification | 146 pytest tests and 71 subtests pass locally (2026-11-12, Conversation 2). The tests use deterministic/mock data and hand-checkable examples. |
 | Angel One SmartAPI | Historical-candle adapter, current instrument-master resolution, normalization, retries and offline-cache workflow are implemented and mock-tested. Live authentication succeeded, but historical requests were denied with HTTP 403 access-rate responses; a live Angel One candle dataset has not been verified. |
 | Dataset currently used for local analysis | A separate Yahoo Finance OHLCV CSV imported through the source-labelled fallback, marked `unadjusted_ohlcv` and user-declared/unverified. It is not Angel One data. |
+| Schema and provenance (Conv 2) | SQLite schema is versioned (`schema_version`, currently 3) with backup-first migrations. Datasets carry a `verification_status` ladder and an append-only provenance-event ledger. `split_adjusted_ohlcv` is now a supported basis; dataset 1 is still labelled `unadjusted_ohlcv` because no NSE corporate-action file has been imported to justify a relabel. |
+| Relative performance (Conv 2) | Tracking error, information ratio, beta, downside beta, up/down capture, Sortino, rolling windows, period returns and Carino-linked security contributions, stored under `engine_version = phase8_perf_v1`. |
+| Benchmark attribution (Conv 2) | Active Share and Brinson-Fachler with Carino linking are implemented and fixture-tested only. They are **gated**: no valid NIFTY 50 constituent weights have been imported, so no attribution is calculated or shown. |
 | NSE independent validation | Ten displayed official NIFTY 50 price-index closes were compared with the saved provider series within 0.01 index points. The remaining dates and individual stocks are unverified. |
 
 The local analysis record and detailed formulas are in [Phase 3 data and SQL](docs/PHASE_3_DATA_SQL.md), [Phase 4 analytics](docs/PHASE_4_ANALYTICS.md), [Phase 5 stress testing](docs/PHASE_5_STRESS_TESTS.md), [Phase 6 dashboard](docs/PHASE_6_DASHBOARD.md), and [Phase 7 verification](docs/PHASE_7_VERIFICATION.md). The latest [maintenance audit](docs/MAINTENANCE_AUDIT_2026-10-23.md) records the project check and remaining cleanup. The phased scope is in [PROJECT_PLAN.md](PROJECT_PLAN.md).
@@ -50,6 +53,11 @@ portfoliopulse/
   portfolio_returns.py         fixed-quantity price returns and alignment
   risk_metrics.py              risk formulas and volatility contributions
   portfolio_analysis.py        dataset-linked analysis orchestration and persistence
+  performance_metrics.py       TE, IR, beta, capture, Sortino, rolling, period returns, contributions
+  benchmark_attribution.py     gated Active Share, Brinson-Fachler and Carino linking
+  migrations.py                versioned, idempotent, backup-first schema migrations
+  reference_data.py            SHA-256-sidecar importers: corporate actions, constituents
+  providers/                   provider protocol over the Angel One, CSV and Yahoo modules
   scenarios.py + attribution.py hypothetical shock generation and reconciliation
   briefing.py                  deterministic text from computed metrics
 scripts/                       refresh, import, analysis and source-comparison commands
@@ -123,6 +131,15 @@ Run Phase 4 analytics for a saved dataset ID. The 6% annual INR risk-free assump
 .\.venv\Scripts\python.exe -m scripts.analyze_phase4 --dataset-id 1 --annual-rf 0.06 --confidence 0.95
 ```
 
+Relative-performance metrics are saved with every Phase 4 run (same command). All comparisons are **price return vs NIFTY 50 price index**, not TRI.
+
+Diagnose the Angel One HTTP 403 without exposing secrets (offline by default; `--live` authenticates from your local `.env` and prints only status codes, hosts, header names, error codes and fixed labels):
+
+```powershell
+.\.venv\Scripts\python.exe -m scripts.diagnose_angelone
+.\.venv\Scripts\python.exe -m scripts.diagnose_angelone --live --idle-seconds 65 --attempts 2 --spacing 60
+```
+
 Run all automated tests:
 
 ```powershell
@@ -130,7 +147,7 @@ Run all automated tests:
 .\.venv\Scripts\python.exe -m pytest -q -p no:cacheprovider
 ```
 
-The current local run completed with **91 tests passing and 57 passing subtests**. API tests use mocks; live Angel One historical access remains unverified.
+The current local run (2026-11-12) completed with **146 tests passing and 71 passing subtests**. API tests use mocks; live Angel One historical access remains unverified.
 
 An independent **ten-date spot check** of NIFTY 50 price-index closes for 1–15 October 2026 was completed against values displayed on [NSE Indices historical data](https://www.niftyindices.com/reports/historical-data). All ten provider values were within 0.01 index points; the largest absolute difference was 0.00078125 points. The [reference CSV](docs/reference/nifty50_nse_indices_2026-10-01_2026-10-15.csv) is a transcription of the displayed official table, not an original NSE export. See [Final audit](docs/FINAL_AUDIT.md) for the comparison command and limitations. For a broader comparison, obtain an official NIFTY 50 price-index CSV and follow the checklist in [Phase 7 verification](docs/PHASE_7_VERIFICATION.md).
 
@@ -138,6 +155,8 @@ An independent **ten-date spot check** of NIFTY 50 price-index closes for 1–15
 
 - The live Angel One historical-candle gate remains pending after an HTTP 403 access-rate denial. Mock tests validate request handling, not live candle delivery.
 - The current local analysis source is Yahoo Finance OHLCV, labelled unadjusted and user-declared/unverified. The ten-date NSE NIFTY 50 spot check supports only those selected index closes; it does not validate the remaining dates or stock prices.
+- Dataset 1 shows no daily move above 35% across the window, which is consistent with split/bonus adjustment, but this has not been checked against NSE corporate-action ex-dates; its `unadjusted_ohlcv` label is unconfirmed.
+- Benchmark attribution stays disabled until a constituent file with valid weights (official or explicitly labelled estimated) and NSE industry classifications is imported.
 - Unadjusted close data may omit dividends and corporate-action effects; it does not support a total-return claim.
 - The observed union dates are not an independently verified exchange calendar. Missing quotes can omit a daily loss; the pipeline reports gaps instead of fabricating values.
 - Historical VaR/ES depend on the selected sample and are not loss guarantees. Stress shocks are hypothetical and depend on analyst-selected settings.

@@ -1,0 +1,372 @@
+# CLAUDE.md — PortfolioPulse India
+
+This file is the working guide for Claude Code and other coding agents. Read it before modifying the repository. Treat the source code, tests, `README.md`, `PROJECT_PLAN.md`, and latest audit documents as the authoritative project materials. If this file conflicts with executable code or a newer audit, inspect the code and tests, explain the discrepancy, and update this guide when appropriate.
+
+## 1. Project purpose and scope
+
+**PortfolioPulse India** is an educational Indian-equity portfolio analytics and risk-monitoring application built with Python, pandas, NumPy, SQLite, Streamlit, and Plotly.
+
+It analyses a configurable buy-and-hold portfolio of NSE-listed shares in INR, compares price performance with the NIFTY 50 **price index**, calculates portfolio risk statistics, and evaluates transparent hypothetical one-period stress scenarios. The dashboard presents analysis and data-quality context.
+
+This is **not** an execution/trading system, investment-advice product, return-prediction model, or production portfolio-management platform. Do not describe it as such or add those capabilities without an explicit change in scope.
+
+### Configured example portfolio
+
+The example universe is configured in `config/instruments.json`:
+
+- RELIANCE
+- HDFCBANK
+- INFY
+- ICICIBANK
+- ITC
+- NIFTY 50 as the separate benchmark
+
+Quantities and target weights are illustrative configuration, not recommendations. The model is **buy and hold**: share quantities remain fixed and market weights drift as prices change. Target weights are reference values for allocation-drift monitoring; editing them must not silently change historical holdings or returns.
+
+## 2. Current implementation status and critical caveats
+
+Use these status statements when developing, documenting, or presenting the project:
+
+1. Portfolio analytics, scenario attribution, SQLite persistence, and Streamlit/Plotly dashboard are implemented.
+2. The recorded local verification reported **91 pytest tests and 57 subtests passing**. These are historical audit results, not proof that a new checkout or later code change currently passes. Run the tests before making a fresh claim.
+3. Angel One SmartAPI adapter, instrument-master resolution, candle normalization, retries, and offline-cache workflow are implemented and mock-tested. Live authentication was reported successful, but historical-candle requests received HTTP 403 access/rate responses. A verified live Angel One historical dataset has **not** been established.
+4. The saved local analysis dataset is a separate Yahoo Finance OHLCV CSV imported through the source-labelled fallback. It is marked `unadjusted_ohlcv` and user-declared/unverified. It is **not Angel One data**.
+5. Only a limited ten-date NIFTY 50 spot check was compared with displayed official NSE Indices values. The audit reported all ten within 0.01 index points, with maximum absolute difference 0.00078125. This does not validate the complete history, individual stocks, or every date.
+6. Returns are price returns, not dividend-aware total returns. The benchmark is NIFTY 50 price index, not TRI. Corporate actions and dividends are not independently adjusted in the unadjusted fallback.
+7. The illustrative annual INR risk-free rate default is 6%; it is a user assumption, not a live RBI feed.
+8. Missing prices are not forward-filled or replaced with zero. Returns requiring missing observations are excluded and data-quality limitations should remain visible.
+9. Scenario outputs are hypothetical one-period sensitivities, not forecasts or predictions.
+10. The application does not synchronize broker holdings, place trades, forecast returns, provide LLM investment advice, or implement live multi-asset coverage.
+
+Never remove source labels, adjustment-basis labels, validation warnings, or limitations merely to make dashboard output look more complete.
+
+## 3. Technology and environment
+
+- Python: verified local environment uses Python 3.12.
+- Dependencies are pinned in `requirements.txt` and `requirements-dev.txt`.
+- Main libraries: NumPy, pandas, Plotly, Streamlit, yfinance, smartapi-python, pyotp, python-dotenv, logzero, websocket-client, pytest.
+- Database: SQLite through Python's built-in `sqlite3`; no separate database server is required.
+- Broker: Angel One SmartAPI.
+
+Do not casually upgrade pinned dependencies. Check compatibility, update pins intentionally, run the full test suite, and document any behavior changes.
+
+## 4. Architecture and module responsibilities
+
+Keep business logic out of the Streamlit presentation layer. Prefer small, testable functions and preserve the existing separation of concerns.
+
+### Repository root
+
+- `app.py` — Streamlit UI, dashboard controls, tabs, charts, formatting, and presentation. It calls the tested analytics/database modules; it should not become the home of financial calculation logic.
+- `config/instruments.json` — configured instruments, example quantities/weights, and benchmark identity. Contains no broker tokens or secrets.
+- `requirements.txt` — runtime dependencies.
+- `requirements-dev.txt` — development/test dependencies, including pytest.
+- `.env.example` — names of required environment variables only; never put real credentials here.
+- `.gitignore` — excludes secrets, local environments, caches, temporary files, and local data as configured.
+- `PROJECT_PLAN.md` — phased project scope and acceptance criteria.
+- `README.md` — setup, usage, architecture, assumptions, and public-facing project description.
+
+### `portfoliopulse/`
+
+- `config.py` — central project paths and configuration constants, including database path and portfolio name.
+- `real_portfolio.py` — real/example portfolio definitions used by the current analytics workflow.
+- `data.py` — source-independent data normalization/alignment and price-data helpers.
+- `data_quality.py` — OHLCV validation, duplicate/date checks, price relationships, coverage, and missingness checks.
+- `sourced_csv.py` — import of separately sourced CSV market data with provenance and checksum validation.
+- `source_verification.py` — comparison of daily closes and parsing/validation of NSE index reference CSVs.
+- `market_data.py` — earlier Yahoo Finance research/download/cache path; keep distinct from the Angel One path and clearly label its data source.
+- `database.py` — SQLite connection, initialization, parameterized queries, transactions, dataset/holding persistence, and analysis/scenario persistence.
+- `schema.sql` — SQLite table, index, key, and constraint definitions. Update schema and database initialization/migration behavior together when changing persistence.
+- `portfolio_returns.py` — pure calculations for fixed-quantity portfolio valuation, daily buy-and-hold returns, benchmark alignment, and annualized endpoint price returns.
+- `risk_metrics.py` — risk calculations: cumulative/annualized returns, volatility, Sharpe, drawdown, historical VaR/ES, correlations, covariance, and volatility contributions.
+- `portfolio_analysis.py` — orchestration for loading a saved dataset, computing portfolio/benchmark analytics, creating metadata, and persisting results. Keep it independent of Streamlit.
+- `scenarios.py` — definitions/generation of broad-market, banking, IT/sector, and individual-holding shocks.
+- `attribution.py` — holding-level scenario impact attribution, reconciliation, allocation drift, and concentration alerts.
+- `scenario_analysis.py` — orchestration of dataset-linked scenario calculations and persistence.
+- `briefing.py` — deterministic, rule-based analyst briefing derived from calculated metrics; it must not invent facts or imply predictive certainty.
+- `analytics.py` — earlier/legacy demo analytics. It overlaps with the newer real-portfolio analytics path; inspect references before changing or deleting it.
+- `demo.py` and `bootstrap.py` — synthetic/legacy demo data and initialization. Never mix fictional demo values with real-market performance or label them as real.
+- `angelone/instrument_master.py` — retrieves/parses instrument master and resolves configured exchange/symbol identities to broker tokens; includes cache/checksum-related handling.
+- `angelone/client.py` — SmartAPI authentication/client behavior, historical candle requests, date-window handling, retries, timestamp normalization, and candle validation.
+- `angelone/cache.py` — local broker-response cache and metadata/integrity checks for offline replay.
+
+### `scripts/`
+
+Use the scripts as explicit command-line entry points rather than duplicating workflow logic:
+
+- `refresh_angelone.py` — retrieve daily Angel One candles.
+- `import_sourced_csv.py` — validate/import source-labelled CSV input and provenance.
+- `ingest_phase3.py` — ingest validated source data into SQLite.
+- `analyze_phase4.py` — run portfolio/benchmark analytics for a saved dataset.
+- `analyze_phase5.py` — run hypothetical stress analysis for a saved dataset.
+- `compare_nse_index.py` — compare saved NIFTY 50 observations with a supplied NSE reference CSV.
+- `refresh_market_data.py` — earlier Yahoo Finance refresh path.
+- `generate_demo_csv.py` and `seed_demo.py` — legacy/demo data utilities.
+
+### `tests/`
+
+Keep all tests. They cover configuration, data processing, Yahoo data, Angel One instrument/client/cache/refresh behavior, sourced CSV, data quality, Phase 3 ingestion/database, Phase 4 returns/risk/analysis, Phase 5 scenarios, and Phase 7 audit/source checks. Tests use deterministic fixtures and mocked external APIs where applicable; passing mocks does not establish live provider access.
+
+### `docs/` and `data/`
+
+- `docs/` contains methodology, phase records, audits, NSE reference data, and interview material. Read the relevant documents when changing the corresponding area; the latest final/maintenance audits are especially important.
+- `data/` contains local datasets, metadata, raw instrument-master material, demo files, and the SQLite database. Treat these as data, not source code. Do not load huge files or dump the database into the model context unless a task specifically requires it.
+
+## 5. Data-source hierarchy and provenance rules
+
+Keep data paths and claims separate:
+
+1. **Angel One SmartAPI** — intended broker source. Its adapter exists, but historical live retrieval has not been verified due to recorded HTTP 403 responses. Do not claim a successful live refresh based only on mocks or cached files.
+2. **Sourced CSV fallback** — separate offline/import path. Every imported dataset must retain its provider/source declaration, date window, retrieval information, file checksum, and adjustment basis in the expected sidecar/metadata. A user-declared source is not independently verified merely because it imports successfully.
+3. **Yahoo Finance research data** — separate fallback/research path. The currently described local fallback is unadjusted OHLCV and user-declared/unverified. Do not relabel it as Angel One or verified NSE data.
+4. **Synthetic demo data** — fictional only. Keep isolated from real portfolio analytics and dashboard outputs.
+5. **NSE reference CSV** — a small manually transcribed reference sample for a limited NIFTY 50 spot check, not a complete original NSE export and not validation of all securities/dates.
+
+Data integrity requirements:
+
+- Preserve source/provider and adjustment-basis metadata end-to-end.
+- Validate positive prices, OHLC relationships, duplicate symbol/date rows, date coverage, missingness, and instrument identity.
+- Do not silently forward-fill missing prices, substitute zero, bridge missing intervals with fabricated returns, or mix adjusted and unadjusted price series.
+- Do not assume an exchange calendar is complete unless it has been independently established.
+- Do not overwrite immutable historical dataset/holding snapshots when current configuration changes.
+- Respect provider/exchange licensing and redistribution terms.
+
+## 6. Financial methodology and conventions
+
+The existing documented conventions are part of the project contract. If changing one, update implementation, tests, UI labels, README, and methodology documentation together.
+
+### Portfolio valuation and daily returns
+
+For fixed quantity `q_i` and observed close `P_{i,t}`:
+
+`V_t = sum_i(q_i * P_{i,t})`
+
+`r_t = V_t / V_(t-1) - 1`
+
+For matched daily stock returns, lagged portfolio weights times stock returns should reconcile to the fixed-quantity portfolio return. Keep benchmark comparisons on common valid dates and disclose excluded observations.
+
+### Annualization and volatility
+
+- Trading-day convention: 252 days per year.
+- Annualized endpoint price return: `(V_end / V_start) ** (252 / observed_union_intervals) - 1`, using the first and last observed complete values and observed date intervals. Disclose sample/calendar limitations.
+- Daily volatility: sample standard deviation (`ddof=1`) of valid paired daily returns.
+- Annualized volatility: daily sample standard deviation multiplied by `sqrt(252)`.
+
+### Sharpe ratio
+
+Convert the annual effective INR risk-free assumption to an effective daily rate:
+
+`daily_rf = (1 + annual_rf) ** (1 / 252) - 1`
+
+`Sharpe = mean(daily_returns - daily_rf) / sample_std(daily_returns) * sqrt(252)`
+
+Sharpe is undefined when volatility is zero or the sample is insufficient. The 6% default is illustrative and manually configurable, not a live RBI rate.
+
+### Drawdown
+
+Calculate observed wealth relative to its running observed peak, including starting wealth of 1. Preserve the distinction between standalone portfolio drawdown and matched-period comparison labels.
+
+### Historical VaR and expected shortfall
+
+At confidence `c`, with `N` valid daily returns:
+
+`k = max(1, ceil((1 - c) * N))`
+
+Sort returns from worst to best. Historical VaR is the nonnegative kth-worst daily loss; expected shortfall is the nonnegative average of the worst `k` losses. These are historical sample statistics, not forecasts or guaranteed loss limits. Clearly label confidence, horizon, and sample size where appropriate.
+
+### Correlation and volatility contribution
+
+- Pearson correlation is calculated on complete aligned daily return rows; constant series may produce undefined values.
+- Annual sample covariance matrix: `Sigma`.
+- Current-weight volatility proxy: `sigma_p = sqrt(w.T @ Sigma @ w)`.
+- Marginal contribution: `(Sigma @ w)_i / sigma_p`.
+- Component contribution: `w_i * marginal_i`; components should reconcile to the proxy volatility.
+- This is a current-weight covariance snapshot/proxy and can differ from realized volatility of the drifting-weight buy-and-hold portfolio. Do not conflate the two.
+
+### Stress scenarios and attribution
+
+Scenarios are hypothetical one-period shocks. For holding `i`:
+
+`impact_i_INR = quantity_i * current_price_i * shock_i`
+
+Portfolio impact is the sum of holding impacts; portfolio percentage impact is total impact divided by portfolio value. Holding contributions must reconcile to the scenario total. Reject invalid shock inputs and clearly label assumptions as hypothetical, not forecasts.
+
+### Return/benchmark convention
+
+The project uses unadjusted close-based **price returns** for the described local fallback and NIFTY 50 **price index**, not TRI. Dividends/corporate actions are not independently adjusted. Never describe these as total returns.
+
+## 7. SQLite data model
+
+The schema currently defines these tables (some belong to the legacy demo path):
+
+- `instruments` — instrument master.
+- `portfolios` — portfolio definitions.
+- `holdings` — legacy/current portfolio holding records.
+- `market_observations` — legacy demo observations.
+- `risk_runs`, `risk_metrics` — legacy risk-run results.
+- `scenarios` — legacy scenario definitions.
+- `scenario_runs`, `scenario_contributions` — dataset-linked stress run and holding-level impacts.
+- `instrument_listings` — exchange/listing identities.
+- `portfolio_benchmarks` — benchmark mapping.
+- `candle_datasets` — source-specific dataset identity and provenance.
+- `dataset_holdings` — immutable holdings snapshot associated with a dataset.
+- `daily_candles` — daily OHLCV observations linked to a dataset.
+- `analysis_metadata` — analysis configuration, selected window, quality/context metadata.
+- `analysis_results` — persisted computed metrics.
+
+Use parameterized SQL for all values. Preserve foreign keys, unique constraints, checks, and transaction/rollback behavior. Do not make assumptions about a dataset ID (for example, ID `1`) being portable across databases. Inspect available dataset metadata first. When changing schema, update `schema.sql`, initialization/migration logic, database functions, and tests together. Avoid destructive migrations; explain backup and migration steps.
+
+## 8. Setup and common commands (Windows PowerShell)
+
+Run commands from the repository root. Use the project virtual environment when present.
+
+### Create environment and install dependencies
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements-dev.txt
+.\.venv\Scripts\python.exe -m pip check
+```
+
+Runtime-only installation:
+
+```powershell
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+```
+
+### Initialize database
+
+```powershell
+.\.venv\Scripts\python.exe -c "from portfoliopulse.database import initialize; initialize()"
+```
+
+The dashboard also initializes the schema on startup. An empty database should show ingestion guidance, not fabricated/demo performance.
+
+### Configure Angel One (only for live attempts)
+
+```powershell
+Copy-Item .env.example .env
+notepad .env
+```
+
+Expected variable names:
+
+- `ANGELONE_API_KEY`
+- `ANGELONE_CLIENT_ID`
+- `ANGELONE_PASSWORD`
+- `ANGELONE_TOTP_SECRET`
+
+Credentials must be entered locally by the user. Never request them in chat, print them, add them to source code, commit `.env`, or include them in logs/screenshots. Offline CSV ingestion and tests should not require broker credentials.
+
+### Data refresh / import / analysis
+
+Angel One refresh (start inclusive, end exclusive):
+
+```powershell
+.\.venv\Scripts\python.exe -m scripts.refresh_angelone --start 2024-01-02 --end 2026-10-16
+```
+
+Import a lawfully obtained, source-labelled CSV (the CSV must have the expected provenance sidecar; consult `docs/PHASE_3_DATA_SQL.md` for exact format):
+
+```powershell
+.\.venv\Scripts\python.exe -m scripts.import_sourced_csv --input data\incoming\prices.csv --start 2024-01-02 --end 2026-10-16
+.\.venv\Scripts\python.exe -m scripts.ingest_phase3 --source sourced --input data\incoming\prices.csv --start 2024-01-02 --end 2026-10-16
+```
+
+Run Phase 4 analytics (replace dataset ID with one actually present in the local database):
+
+```powershell
+.\.venv\Scripts\python.exe -m scripts.analyze_phase4 --dataset-id 1 --annual-rf 0.06 --confidence 0.95
+```
+
+Run Phase 5 broad-market scenario (check `--help` for supported scenario options before using another type):
+
+```powershell
+.\.venv\Scripts\python.exe -m scripts.analyze_phase5 --dataset-id 1 --type broad_market
+```
+
+Compare NIFTY 50 with the limited reference sample:
+
+```powershell
+.\.venv\Scripts\python.exe -m scripts.compare_nse_index --dataset-id 1 --nse-csv docs\reference\nifty50_nse_indices_2026-10-01_2026-10-15.csv --reference-source-url https://www.niftyindices.com/reports/historical-data --output-dir .tmp\nse-audit
+```
+
+### Run tests and dashboard
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest -q -p no:cacheprovider
+.\.venv\Scripts\python.exe -m streamlit run app.py --server.address 127.0.0.1
+```
+
+Use `--help` on scripts if arguments or behavior are unclear. Do not assume that a command succeeded until its exit status/output has been checked.
+
+## 9. Development rules for Claude
+
+Follow these rules for every task:
+
+1. **Inspect before editing.** Read the relevant implementation, callers, tests, schema, and documentation before proposing or changing behavior. Use targeted file reads; do not dump the entire database, instrument master, or large CSVs into context.
+2. **Establish the baseline.** Check Git status and run the relevant tests before making changes when practical. Do not overwrite uncommitted user work. Ask before destructive operations or broad refactors.
+3. **Make minimal, scoped changes.** Prefer the smallest coherent change. Do not rebuild the application, rename modules, reorganize the architecture, or add dependencies without a clear requirement and explanation.
+4. **Preserve public behavior.** Avoid breaking existing CLI arguments, data formats, database records, UI behavior, and documented workflows unless the task explicitly requires a change. If behavior changes, explain migration/compatibility impact.
+5. **Keep calculations testable.** Put financial/business logic in pure or focused modules, not in `app.py`. Add or update unit tests with hand-calculable fixtures for financial formulas and edge cases.
+6. **Test the right layers.** Run targeted tests during iteration and the full test suite before concluding. For changes involving data persistence, include database tests; for external APIs, use mocks and clearly distinguish mocked verification from live verification.
+7. **Protect financial correctness.** Preserve units (INR, decimal return, percentage points), sign conventions, date alignment, sample-size behavior, missing-data rules, annualization assumptions, and adjustment basis. Avoid silent coercion or rounding that changes results.
+8. **Preserve provenance.** Never fabricate source, retrieval time, exchange validation, data freshness, or successful API access. Keep metadata and adjustment labels attached to datasets and displayed outputs.
+9. **Protect secrets and private data.** Never print, request, commit, or expose API keys, passwords, TOTP secrets, tokens, session responses, account identifiers, or private portfolio data. Do not read `.env` unless the user explicitly asks for a safe local configuration check; never reveal its values.
+10. **Handle data safely.** Back up before database migrations or data rewrites. Do not delete user data, raw files, reference files, or the SQLite database without explicit approval. Avoid changing large datasets as part of code-only tasks.
+11. **Avoid unsupported claims.** Do not claim a live API integration, official data verification, complete exchange calendar, total-return calculation, production readiness, or predictive ability unless independently demonstrated.
+12. **Update documentation.** If a change affects setup, architecture, formulas, assumptions, CLI, schema, UI, or limitations, update the relevant README/docs and this file where necessary.
+13. **Report clearly.** At completion, summarize files changed, behavior changed, commands/tests run and their actual results, unresolved issues, and any manual steps. Distinguish verified facts from assumptions.
+14. **No unrelated feature creep.** Do not add forecasting, LLM advice, trading, broker holdings sync, deployment infrastructure, or multi-asset coverage unless explicitly requested.
+
+## 10. Suggested workflow for a development task
+
+1. Restate the requested outcome and identify the affected modules.
+2. Inspect the current code, relevant tests, and latest audit notes.
+3. Check repository status and preserve any user changes.
+4. Write a short implementation plan for non-trivial work.
+5. Implement a focused change with tests.
+6. Run targeted tests, then the full suite where feasible.
+7. Review the diff for accidental changes, secrets, generated files, and data modifications.
+8. Update docs and this guide if behavior or assumptions changed.
+9. Report exact verification results and any limitations. Never imply tests or live checks were run when they were not.
+
+## 11. Best documents to consult by task
+
+- Overall project scope and acceptance criteria: `PROJECT_PLAN.md`.
+- User setup and commands: `README.md`.
+- Current completed work, formula checks, known limitations, and handoff: `docs/FINAL_AUDIT.md`.
+- Cleanup and maintenance findings: `docs/MAINTENANCE_AUDIT_2026-10-23.md`.
+- Data ingestion, schema, CSV headers, sidecar/provenance: `docs/PHASE_3_DATA_SQL.md`.
+- Portfolio-return and risk methodology: `docs/PHASE_4_ANALYTICS.md`.
+- Scenario definitions and attribution: `docs/PHASE_5_STRESS_TESTS.md`.
+- Dashboard behavior: `docs/PHASE_6_DASHBOARD.md`.
+- Verification methodology: `docs/PHASE_7_VERIFICATION.md`.
+- Resume/interview content (only when specifically working on career material): `docs/PORTFOLIOPULSE_CV_INTERVIEW.md`.
+
+## 12. Definition of done
+
+A development task is complete only when:
+
+- The requested behavior is implemented in the correct layer.
+- Existing functionality and data integrity are preserved.
+- Relevant automated tests pass, or failures are clearly reported with evidence.
+- Financial outputs retain correct methodology, units, labels, and assumptions.
+- Source provenance and known limitations remain transparent.
+- Documentation is updated where needed.
+- No secrets, generated artifacts, or unrelated data changes are introduced.
+- The final handoff states exactly what changed and what was actually verified.
+
+## 13. Handoff log
+
+### 2026-11-12 — Conversation 2 (Phases 1, 2, 6-framework)
+
+Full details: `docs/HANDOFF_CONV2.md`. Branch `conv2-foundation-performance-attribution`; commits `a4b17a1` (Phase 1), `aeb251a` (Phase 2), `b4a46c6` (Phase 6 framework), plus a docs commit. Not pushed.
+
+- **Tests (actually run):** baseline HEAD 91 passed / 57 subtests; final **146 passed / 71 subtests**. `.venv` was created from pinned `requirements-dev.txt`; no dependency changes.
+- **Schema:** now versioned. `schema.sql` is the frozen v0 baseline; `portfoliopulse/migrations.py` holds v1–v3 and runs from `database.initialize()` (backup-first, transactional, idempotent). New tables: `schema_version`, `reference_datasets`, `corporate_actions`, `dataset_provenance_events`, `benchmark_constituents`, `security_classifications`. `candle_datasets` gained `verification_status` and allows `split_adjusted_ohlcv`. Add future schema changes as a new numbered migration, never by editing `schema.sql`.
+- **Real DB:** backed up to `data/backups/` (git-ignored), migrated 0 → 3 after testing on a copy; dataset 1 Phase-4 metrics, all 236 stored results and scenario contributions bit-identical; integrity/FK checks clean.
+- **Phase 2:** `performance_metrics.py`; new keys stored under `engine_version = phase8_perf_v1`; `Phase4Analysis.metrics` still has exactly the original 20 keys; new results in `.performance`. Label everything "price return vs NIFTY 50 price index (not TRI)".
+- **Phase 6:** `benchmark_attribution.py` (Active Share, Brinson-Fachler, Carino) is fixture-tested and **gated** by `attribution_gate()`; no valid constituent weights exist, so nothing is computed on real data. Never fabricate weights.
+- **Angel One 403:** only the offline sanitized diagnostic (`scripts/diagnose_angelone.py`) was run. Leads: SDK sends its hard-coded placeholder public IP (constructor IP overrides ignored); cached master from legacy `angelbroking.com` host. Live checks are a user action; still unverified.
+- **Open:** dataset 1 still labelled `unadjusted_ohlcv` (jump scan consistent with split/bonus adjustment but no NSE corporate-action file imported — relabel only via `relabel_price_basis` with that evidence); constituent weights decision; security-level attribution; dashboard display of Phase 2 metrics. Next: Conversation 3 (advanced risk engine, SciPy pin).
+- Status statement §2 item 2 (91 tests) is superseded by the counts above.
