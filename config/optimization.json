@@ -1,0 +1,46 @@
+{
+  "config_version": "optimization_config_v1",
+  "interpretation": "Illustrative, in-sample portfolio construction on a five-stock universe. Optimized weights are not recommendations and are never written to dataset_holdings or config/instruments.json.",
+  "annual_risk_free_rate": 0.06,
+  "risk_free_rate_note": "Illustrative effective annual INR assumption (project default), not a live RBI/FBIL rate.",
+  "risk_free_sensitivity_rates": [0.0],
+  "expected_return_method": "arithmetic",
+  "expected_return_methods_reported": ["arithmetic", "cagr", "bayes_stein"],
+  "covariance_estimator": "ledoit_wolf",
+  "minimum_observations": 252,
+  "investment_amount_inr": 1000000,
+  "constraints": {
+    "long_only": true,
+    "fully_invested": true,
+    "min_weight": 0.05,
+    "max_weight": 0.35,
+    "sector_max": {"Banking": 0.40},
+    "sector_min": {},
+    "max_turnover": null,
+    "note": "Max weight doubles as the single-stock concentration limit. The Banking cap applies to the two bank holdings combined."
+  },
+  "strategy_variants": [
+    {"strategy": "min_variance_turnover_limited", "base": "min_variance", "max_turnover": 0.20,
+     "note": "Min-variance with sum |w - w_current| <= 20% relative to the existing weights."}
+  ],
+  "frontier_points": 25,
+  "walk_forward": {"estimation_observations": 252, "holding_observations": 21},
+  "transaction_costs": {
+    "basis": "illustrative_assumption_verify_current_rates",
+    "note": "Indian delivery-equity cost components as basis points of traded value. Rates change; verify against your broker's contract note and current NSE/SEBI/state notifications before relying on them.",
+    "gst_rate": 0.18,
+    "brokerage_per_order_inr": 0.0,
+    "components": [
+      {"name": "brokerage", "buy_bps": 0.0, "sell_bps": 0.0, "gst_applicable": true,
+       "source_note": "Assumes a zero-brokerage delivery plan; set your broker's rate."},
+      {"name": "stt", "buy_bps": 10.0, "sell_bps": 10.0, "gst_applicable": false,
+       "source_note": "Securities Transaction Tax on delivery equity, assumed 0.1% per side; verify current Finance Act rate."},
+      {"name": "stamp_duty", "buy_bps": 1.5, "sell_bps": 0.0, "gst_applicable": false,
+       "source_note": "Stamp duty on delivery purchases, assumed 0.015%; verify the Indian Stamp Act schedule."},
+      {"name": "exchange_transaction_charge", "buy_bps": 0.297, "sell_bps": 0.297, "gst_applicable": true,
+       "source_note": "NSE equity transaction charge, assumed 0.00297%; verify the current NSE circular."},
+      {"name": "sebi_turnover_fee", "buy_bps": 0.01, "sell_bps": 0.01, "gst_applicable": true,
+       "source_note": "SEBI fee assumed INR 10 per crore (0.0001%); verify current SEBI rate."}
+    ]
+  }
+}
