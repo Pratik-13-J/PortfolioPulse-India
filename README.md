@@ -10,7 +10,7 @@ PortfolioPulse analyses a configurable buy-and-hold portfolio of NSE-listed shar
 |---|---|
 | Portfolio analytics, scenario attribution and dashboard | Implemented; the portfolio uses fixed share quantities and weights drift with prices. |
 | Automated verification | 146 pytest tests and 71 subtests pass locally (2026-11-12, Conversation 2). The tests use deterministic/mock data and hand-checkable examples. |
-| Angel One SmartAPI | Historical-candle adapter, current instrument-master resolution, normalization, retries and offline-cache workflow are implemented and mock-tested. Live authentication succeeded, but historical requests were denied with HTTP 403 access-rate responses; a live Angel One candle dataset has not been verified. |
+| Angel One SmartAPI | Adapter, instrument-master resolution, normalization, retries and offline cache are implemented and mock-tested. The October long-window refresh was denied with HTTP 403 access-rate responses. On 2026-11-12 a controlled 15-day live pull succeeded and is stored as dataset 2 (`verified_live`, unadjusted OHLCV, 66 candles). Long-window live access is not yet re-tested, and dataset 2 is too short for risk statistics. |
 | Dataset currently used for local analysis | A separate Yahoo Finance OHLCV CSV imported through the source-labelled fallback, marked `unadjusted_ohlcv` and user-declared/unverified. It is not Angel One data. |
 | Schema and provenance (Conv 2) | SQLite schema is versioned (`schema_version`, currently 3) with backup-first migrations. Datasets carry a `verification_status` ladder and an append-only provenance-event ledger. `split_adjusted_ohlcv` is now a supported basis; dataset 1 is still labelled `unadjusted_ohlcv` because no NSE corporate-action file has been imported to justify a relabel. |
 | Relative performance (Conv 2) | Tracking error, information ratio, beta, downside beta, up/down capture, Sortino, rolling windows, period returns and Carino-linked security contributions, stored under `engine_version = phase8_perf_v1`. |
@@ -153,7 +153,7 @@ An independent **ten-date spot check** of NIFTY 50 price-index closes for 1–15
 
 ## Limitations
 
-- The live Angel One historical-candle gate remains pending after an HTTP 403 access-rate denial. Mock tests validate request handling, not live candle delivery.
+- Angel One live delivery is verified only for a 15-day window (dataset 2). Long-window requests previously returned HTTP 403 and have not been re-tested. Angel candles are unadjusted, so long histories need corporate-action handling. The SDK sends a placeholder public-IP header that is accepted today.
 - The current local analysis source is Yahoo Finance OHLCV, labelled unadjusted and user-declared/unverified. The ten-date NSE NIFTY 50 spot check supports only those selected index closes; it does not validate the remaining dates or stock prices.
 - Dataset 1 shows no daily move above 35% across the window, which is consistent with split/bonus adjustment, but this has not been checked against NSE corporate-action ex-dates; its `unadjusted_ohlcv` label is unconfirmed.
 - Benchmark attribution stays disabled until a constituent file with valid weights (official or explicitly labelled estimated) and NSE industry classifications is imported.

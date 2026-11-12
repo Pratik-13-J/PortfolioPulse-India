@@ -29,7 +29,7 @@ Use these status statements when developing, documenting, or presenting the proj
 
 1. Portfolio analytics, scenario attribution, SQLite persistence, and Streamlit/Plotly dashboard are implemented.
 2. The recorded local verification reported **91 pytest tests and 57 subtests passing**. These are historical audit results, not proof that a new checkout or later code change currently passes. Run the tests before making a fresh claim.
-3. Angel One SmartAPI adapter, instrument-master resolution, candle normalization, retries, and offline-cache workflow are implemented and mock-tested. Live authentication was reported successful, but historical-candle requests received HTTP 403 access/rate responses. A verified live Angel One historical dataset has **not** been established.
+3. Angel One SmartAPI adapter, instrument-master resolution, candle normalization, retries, and offline-cache workflow are implemented and mock-tested. The 2026-10-16 refresh received HTTP 403 access-rate responses (cause not isolated). On 2026-11-12 a live diagnostic and a controlled 15-day pull succeeded: **dataset 2** (`angel_one_smartapi`, `verified_live`, `unadjusted_ohlcv`, 2026-10-29 to 2026-11-12, 66 candles). Only this short window is verified live; long-window Angel access is untested. See `docs/HANDOFF_CONV2.md` §6.
 4. The saved local analysis dataset is a separate Yahoo Finance OHLCV CSV imported through the source-labelled fallback. It is marked `unadjusted_ohlcv` and user-declared/unverified. It is **not Angel One data**.
 5. Only a limited ten-date NIFTY 50 spot check was compared with displayed official NSE Indices values. The audit reported all ten within 0.01 index points, with maximum absolute difference 0.00078125. This does not validate the complete history, individual stocks, or every date.
 6. Returns are price returns, not dividend-aware total returns. The benchmark is NIFTY 50 price index, not TRI. Corporate actions and dividends are not independently adjusted in the unadjusted fallback.
@@ -115,7 +115,7 @@ Keep all tests. They cover configuration, data processing, Yahoo data, Angel One
 
 Keep data paths and claims separate:
 
-1. **Angel One SmartAPI** — intended broker source. Its adapter exists, but historical live retrieval has not been verified due to recorded HTTP 403 responses. Do not claim a successful live refresh based only on mocks or cached files.
+1. **Angel One SmartAPI** — primary broker source. Live historical retrieval is verified only for dataset 2 (15-day window, 2026-11-12); earlier long-window requests got HTTP 403. Keep at least 60 s request spacing. Do not claim a successful live refresh based only on mocks or cached files.
 2. **Sourced CSV fallback** — separate offline/import path. Every imported dataset must retain its provider/source declaration, date window, retrieval information, file checksum, and adjustment basis in the expected sidecar/metadata. A user-declared source is not independently verified merely because it imports successfully.
 3. **Yahoo Finance research data** — separate fallback/research path. The currently described local fallback is unadjusted OHLCV and user-declared/unverified. Do not relabel it as Angel One or verified NSE data.
 4. **Synthetic demo data** — fictional only. Keep isolated from real portfolio analytics and dashboard outputs.
@@ -370,3 +370,11 @@ Full details: `docs/HANDOFF_CONV2.md`. Branch `conv2-foundation-performance-attr
 - **Angel One 403:** only the offline sanitized diagnostic (`scripts/diagnose_angelone.py`) was run. Leads: SDK sends its hard-coded placeholder public IP (constructor IP overrides ignored); cached master from legacy `angelbroking.com` host. Live checks are a user action; still unverified.
 - **Open:** dataset 1 still labelled `unadjusted_ohlcv` (jump scan consistent with split/bonus adjustment but no NSE corporate-action file imported — relabel only via `relabel_price_basis` with that evidence); constituent weights decision; security-level attribution; dashboard display of Phase 2 metrics. Next: Conversation 3 (advanced risk engine, SciPy pin).
 - Status statement §2 item 2 (91 tests) is superseded by the counts above.
+
+### 2026-11-12 — Conversation 2 addendum (Angel One live validation)
+
+- User ran the live diagnostic locally: all calls HTTP 200 (login, profile, RMS, LTP, two candle calls). The original 403 was not reproduced, so its exact cause is unidentified (candidates: ~1,018-day windows, 10 s pacing, or since-changed account state). Static-IP enforcement, entitlement, key, session, host and route problems are ruled out for now.
+- With user authorization: DB backup → 15-day live pull (6 instruments, 60 s spacing) → new cache files → `ingest_phase3 --source angel` → **dataset ID 2** (`verified_live`, `unadjusted_ohlcv`, 66 candles, 11 sessions, 10 valid returns). Integrity clean. The Sunday 2026-11-08 session and missing 2026-11-10 are unverified against an NSE calendar; RELIANCE +11.6% on 2026-11-02 is unverified.
+- Dataset 1 untouched and bit-identical. Tests: 146 passed / 71 subtests.
+- Angel One is **conditionally suitable** as primary: long-window access, corporate-action handling for unadjusted history, and cross-provider comparison are still open (`docs/HANDOFF_CONV2.md` §6.3). Next data step awaiting approval: long Angel pull 2024-01-02 → 2026-10-16 compared with dataset 1 and the NSE sample (§6.4).
+- **Conversation 3 kickoff** (advanced risk engine only; SciPy pin first) is in `docs/HANDOFF_CONV2.md` §7.
