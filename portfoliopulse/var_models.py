@@ -99,6 +99,39 @@ def historical(daily_returns: pd.Series, *, confidence: float = 0.95) -> VaREsti
     return VaREstimate("historical", level, var, es, n, {"tail_count": historical_tail_count(n, level)})
 
 
+def age_weighted_historical(
+    daily_returns: pd.Series, *, confidence: float = 0.95, decay: float = 0.98,
+) -> VaREstimate:
+    """Age-weighted historical simulation (Boudoukh, Richardson & Whitelaw 1998).
+
+    The observation of age a (0 = most recent) gets weight
+    w = decay^a (1 - decay) / (1 - decay^N); decay = 1 gives equal weights 1/N.
+    Returns are sorted from worst; VaR is minus the first return whose
+    cumulative weight reaches alpha = 1 - c; ES is minus the weight-averaged
+    tail up to alpha (the VaR observation enters with its partial weight).
+    Losses are floored at zero, as in ``historical_var_es``. A diagnostic
+    alternative only: it is not used by the stored risk-engine runs.
+    """
+    level = _confidence(confidence)
+    lam = _finite_rate(decay, "decay")
+    if not 0 < lam <= 1:
+        raise ValueError("decay must lie in (0, 1].")
+    returns = _returns(daily_returns, minimum=2)
+    values = returns.to_numpy(dtype=float)
+    n = len(values)
+    ages = np.arange(n - 1, -1, -1, dtype=float)
+    weights = np.full(n, 1.0 / n) if lam == 1 else lam ** ages * (1 - lam) / (1 - lam ** n)
+    order = np.argsort(values, kind="mergesort")
+    sorted_returns, sorted_weights = values[order], weights[order]
+    alpha = 1.0 - level
+    cumulative = np.cumsum(sorted_weights)
+    index = int(np.searchsorted(cumulative, alpha - 1e-12))
+    before = cumulative[index - 1] if index > 0 else 0.0
+    tail = float(sorted_returns[:index] @ sorted_weights[:index] + sorted_returns[index] * (alpha - before))
+    return VaREstimate("age_weighted_historical", level, max(0.0, -float(sorted_returns[index])),
+                       max(0.0, -tail / alpha), n, {"decay": lam})
+
+
 def historical_tail_observations(daily_returns: pd.Series, *, confidence: float = 0.95) -> pd.DataFrame:
     """The k worst observed daily returns (worst first; ties by earlier date)."""
     returns = _returns(daily_returns, minimum=2)

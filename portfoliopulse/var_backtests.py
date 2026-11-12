@@ -26,24 +26,33 @@ from scipy.special import xlogy
 from scipy.stats import chi2
 
 from portfoliopulse.risk_metrics import _returns
-from portfoliopulse.var_models import _confidence, historical, parametric_normal
+from portfoliopulse.var_models import _confidence, age_weighted_historical, historical, parametric_normal
 
-FORECAST_METHODS = ("historical", "normal")
+FORECAST_METHODS = ("historical", "normal")  # used by the stored risk engine; keep unchanged
+DIAGNOSTIC_METHODS = FORECAST_METHODS + ("age_weighted",)  # extra estimator for model diagnostics only
 
 
 def rolling_var_forecasts(
     daily_returns: pd.Series, *, window: int = 250, confidence: float = 0.99, method: str = "historical",
+    decay: float = 0.98,
 ) -> pd.DataFrame:
-    """One-day-ahead VaR forecasts from a trailing window and their outcomes."""
-    if method not in FORECAST_METHODS:
-        raise ValueError(f"Backtest method must be one of {FORECAST_METHODS}.")
+    """One-day-ahead VaR forecasts from a trailing window and their outcomes.
+
+    ``decay`` applies only to the diagnostic ``age_weighted`` method.
+    """
+    if method not in DIAGNOSTIC_METHODS:
+        raise ValueError(f"Backtest method must be one of {DIAGNOSTIC_METHODS}.")
     if isinstance(window, bool) or not isinstance(window, (int, np.integer)) or window < 2:
         raise ValueError("window must be an integer of at least 2.")
     level = _confidence(confidence)
     returns = _returns(daily_returns, minimum=2)
     if len(returns) <= window:
         raise ValueError(f"Backtesting needs more than {window} observations; got {len(returns)}.")
-    model = historical if method == "historical" else parametric_normal
+    if method == "age_weighted":
+        def model(sample, confidence):
+            return age_weighted_historical(sample, confidence=confidence, decay=decay)
+    else:
+        model = historical if method == "historical" else parametric_normal
     forecasts = [model(returns.iloc[t - window:t], confidence=level).var for t in range(window, len(returns))]
     realized = returns.iloc[window:]
     frame = pd.DataFrame({"realized_return": realized.to_numpy(), "var_forecast": forecasts}, index=realized.index)
